@@ -28,9 +28,10 @@ impl ObjectPool {
         let mut pos = Vec::with_capacity(n);
         let mut vel = Vec::with_capacity(n);
 
-        // LEO range: 200-2000 km altitude above Earth surface (6371 km radius)
+        // LEO range with more variation: 200-2000 km altitude above Earth surface (6371 km radius)
+        // This creates objects at various orbital heights for more diverse visualization
         let radius_dist = Uniform::new(6571.0, 8371.0);
-        let incl_dist = Uniform::new(0.0, PI);
+        let incl_dist = Uniform::new(0.0, PI);  // Full range of inclinations (0° to 180°)
         let theta0_dist = Uniform::new(0.0, 2.0 * PI);
         let mu = 398600.4418; // Earth's gravitational parameter (km³/s²)
 

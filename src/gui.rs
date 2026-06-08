@@ -35,15 +35,17 @@ struct LeoApp {
     collisions: Vec<CollisionPair>,
     selected_track: Option<u64>,
     query_time_s: f64,
-    speed: usize,
+    speed: f32,
     camera_rotation_x: f32,
     camera_rotation_y: f32,
     camera_distance: f32,
-    detected_objects_flash: HashSet<usize>, // Objects detected this frame - flash effect
+    detected_objects_flash: HashSet<usize>,
+    detecting_sensors: std::collections::HashMap<usize, Vec<u32>>,  // obj_idx -> sensor_ids
     flash_timer: f32,
     show_earth: bool,
     show_observatories: bool,
     show_orbits: bool,
+    frame_counter: u32,
 }
 
 impl LeoApp {
@@ -55,15 +57,17 @@ impl LeoApp {
             collisions: Vec::new(),
             selected_track: None,
             query_time_s: 0.0,
-            speed: 1,
+            speed: 0.5,
             camera_rotation_x: 30.0,
             camera_rotation_y: 45.0,
             camera_distance: 15000.0,
             detected_objects_flash: HashSet::new(),
+            detecting_sensors: std::collections::HashMap::new(),
             flash_timer: 0.0,
             show_earth: true,
             show_observatories: true,
             show_orbits: true,
+            frame_counter: 0,
         }
     }
 
@@ -72,15 +76,28 @@ impl LeoApp {
             return;
         }
         
-        // Collect currently detected object indices
+        // Collect currently detected object indices and which sensors saw them
         let mut newly_detected = HashSet::new();
+        let mut sensor_detections: std::collections::HashMap<usize, Vec<u32>> = std::collections::HashMap::new();
+        
         let confirmed_tracks = self.sim.tracker.confirmed_track_refs();
         for track in &confirmed_tracks {
             newly_detected.insert(track.object_id);
+            
+            // Track which sensors detected this object
+            let sensor_ids: Vec<u32> = track.observations.iter()
+                .filter(|obs| obs.timestamp_ms == (self.sim.step as f64 * self.sim.config.dt * 1000.0) as u64)
+                .map(|obs| obs.sensor_id)
+                .collect();
+            
+            if !sensor_ids.is_empty() {
+                sensor_detections.insert(track.object_id, sensor_ids);
+            }
         }
         
         self.detected_objects_flash = newly_detected;
-        self.flash_timer = 0.5; // Flash for 0.5 seconds
+        self.detecting_sensors = sensor_detections;
+        self.flash_timer = 1.0; // Flash for 1 second
         
         let result = self.sim.step_once();
         self.query_time_s = result.summary.sim_time_s;
@@ -101,11 +118,20 @@ impl eframe::App for LeoApp {
         }
 
         if self.playing && !self.sim.finished {
-            for _ in 0..self.speed {
-                if self.sim.finished {
-                    break;
+            // Handle fractional speeds
+            self.frame_counter += 1;
+            let frames_per_step = (1.0 / self.speed).max(1.0) as u32;
+            
+            if self.frame_counter >= frames_per_step {
+                self.frame_counter = 0;
+                let steps_this_frame = self.speed.max(1.0) as usize;
+                
+                for _ in 0..steps_this_frame {
+                    if self.sim.finished {
+                        break;
+                    }
+                    self.advance();
                 }
-                self.advance();
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
@@ -125,7 +151,10 @@ impl eframe::App for LeoApp {
                 ui.separator();
                 
                 ui.label("Speed:");
-                ui.add(egui::Slider::new(&mut self.speed, 1..=10).text("x"));
+                ui.add(egui::Slider::new(&mut self.speed, 0.1..=5.0)
+                    .text("x")
+                    .logarithmic(true));
+                ui.label(format!("{:.1}x", self.speed));
                 
                 ui.separator();
                 ui.label(format!("⏱ Sim: {:.0}s", self.query_time_s));
@@ -143,50 +172,98 @@ impl eframe::App for LeoApp {
 
         egui::SidePanel::left("detections")
             .resizable(true)
-            .default_width(320.0)
+            .default_width(380.0)
             .show(ctx, |ui| {
-                ui.heading("📡 Live Detections");
+                ui.heading("📡 Live Detection Log");
                 ui.separator();
                 
                 if !self.detected_objects_flash.is_empty() && self.flash_timer > 0.0 {
                     ui.colored_label(Color32::from_rgb(100, 255, 100), "● OBJECTS DETECTED!");
                     ui.separator();
                     
-                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                         let mut detected_list: Vec<_> = self.detected_objects_flash.iter().copied().collect();
                         detected_list.sort();
                         
                         for obj_idx in detected_list.iter().take(50) {
                             let obj_name = self.sim.objects.get_name(*obj_idx);
                             let pos = self.sim.objects.get_position(*obj_idx);
+                            
+                            // Check if this object is in a collision warning
+                            let has_collision = self.collisions.iter().any(|pair| {
+                                if let Some(track_a) = self.sim.tracker.confirmed_track_refs()
+                                    .iter().find(|t| t.track_id == pair.track_a) {
+                                    if track_a.object_id == *obj_idx {
+                                        return true;
+                                    }
+                                }
+                                if let Some(track_b) = self.sim.tracker.confirmed_track_refs()
+                                    .iter().find(|t| t.track_id == pair.track_b) {
+                                    if track_b.object_id == *obj_idx {
+                                        return true;
+                                    }
+                                }
+                                false
+                            });
+                            
+                            let collision_marker = if has_collision { " ⚠ COLLISION" } else { "" };
+                            let color = if has_collision { 
+                                Color32::from_rgb(255, 100, 100) 
+                            } else { 
+                                Color32::from_rgb(150, 255, 150) 
+                            };
+                            
                             ui.colored_label(
-                                Color32::from_rgb(150, 255, 150),
-                                format!("✓ {} @ [{:.0}, {:.0}, {:.0}] km", 
-                                    obj_name, pos[0], pos[1], pos[2])
+                                color,
+                                format!("✓ {} | T={:.0}s | Collision={}{}", 
+                                    obj_name, 
+                                    self.query_time_s,
+                                    has_collision,
+                                    collision_marker
+                                )
                             );
+                            
+                            // Show which observatories detected this object
+                            if let Some(sensor_ids) = self.detecting_sensors.get(obj_idx) {
+                                let obs_names: Vec<String> = sensor_ids.iter()
+                                    .map(|id| format!("OBS_{:02}", id))
+                                    .collect();
+                                ui.label(format!("   Detected by: {}", obs_names.join(", ")));
+                            }
+                            
+                            ui.label(format!("   Pos: [{:.0}, {:.0}, {:.0}] km", 
+                                pos[0], pos[1], pos[2]));
+                            ui.separator();
                         }
                         if detected_list.len() > 50 {
                             ui.label(format!("... and {} more", detected_list.len() - 50));
                         }
                     });
                 } else {
-                    ui.colored_label(Color32::GRAY, "○ Scanning...");
+                    ui.colored_label(Color32::GRAY, "○ Scanning for objects...");
                 }
                 
                 ui.separator();
                 ui.heading("🔭 Observatory Network");
-                ui.label(format!("{} ground stations", self.sim.sensors.len()));
-                ui.label(format!("FOV: {:.0}° cone", self.sim.config.fov_half_angle.to_degrees()));
+                ui.label(format!("Active Stations: {}", self.sim.sensors.len()));
+                ui.label(format!("Coverage: Fibonacci sphere distribution"));
+                ui.label(format!("FOV per station: {:.0}° cone", self.sim.config.fov_half_angle.to_degrees()));
                 
                 ui.separator();
-                ui.heading("⚠ Collision Watch");
+                ui.heading("⚠ Collision Warnings");
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if self.collisions.is_empty() {
-                        ui.label("No collision risks detected.");
+                        ui.label("✓ No collision risks detected.");
+                    } else {
+                        ui.colored_label(
+                            Color32::from_rgb(255, 150, 50),
+                            format!("{} ACTIVE WARNINGS", self.collisions.len())
+                        );
+                        ui.separator();
                     }
                     for pair in &self.collisions {
                         let label = format!(
-                            "Track #{} ↔ #{}\nΔ {:.2} km | TCA {:.0}s",
+                            "Track #{} ↔ #{}\nMiss Δ: {:.2} km\nTime to CA: {:.0}s",
                             pair.track_a,
                             pair.track_b,
                             pair.miss_distance_km,
@@ -368,11 +445,13 @@ impl eframe::App for LeoApp {
                 }
             }
 
-            // Draw observatories
+            // Draw observatories with better visibility
             if self.show_observatories {
                 for sensor in &self.sim.sensors {
                     let pos = project(sensor.position);
-                    painter.circle_filled(pos, 4.0, Color32::from_rgb(255, 150, 50));
+                    // Draw observatory as a larger marker with outline
+                    painter.circle_filled(pos, 5.0, Color32::from_rgb(255, 150, 50));
+                    painter.circle_stroke(pos, 7.0, egui::Stroke::new(1.5, Color32::from_rgb(255, 200, 100)));
                 }
             }
 

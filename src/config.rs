@@ -19,8 +19,8 @@ impl Default for SimConfig {
     fn default() -> Self {
         Self {
             n_objects: 100_000,
-            n_sensors: 8,
-            dt: 10.0,
+            n_sensors: 12,  // More observatories for better global coverage
+            dt: 30.0,       // Slower time step for clearer visualization
             steps: 100,
             seed: 42,
             fov_half_angle: std::f64::consts::PI / 3.0,
@@ -36,7 +36,9 @@ impl Default for SimConfig {
 impl SimConfig {
     pub fn for_gui() -> Self {
         Self {
-            n_objects: 500,    // Start with fewer objects for clear visualization
+            n_objects: 300,    // Moderate number for clear visualization
+            n_sensors: 16,     // More sensors for better global coverage
+            dt: 20.0,          // Slower updates for easier tracking
             steps: usize::MAX,
             ..Self::default()
         }

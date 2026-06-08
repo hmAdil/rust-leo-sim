@@ -126,20 +126,19 @@ impl GroundStation {
     }
 }
 
-/// Create observatories distributed around the globe
+/// Create observatories distributed around the globe using Fibonacci sphere
 pub fn create_sensors(config: &SimConfig) -> Vec<GroundStation> {
     let mut sensors = Vec::with_capacity(config.n_sensors);
     let phi = (1.0 + 5.0f64.sqrt()) / 2.0; // Golden ratio for even distribution
 
     for i in 0..config.n_sensors {
-        // Fibonacci sphere distribution for even coverage
+        // Fibonacci sphere distribution for even global coverage
         let y = 1.0 - (i as f64 + 0.5) / (config.n_sensors as f64);
-        let radius = (1.0 - y * y).sqrt();
         let theta = 2.0 * PI * (i as f64) / phi;
         
-        // Convert to latitude and longitude
-        let lat = y.asin();
-        let lon = theta.atan2(theta.cos() * radius);
+        // Convert to spherical coordinates (latitude and longitude)
+        let lat = y.asin();  // Latitude in radians
+        let lon = theta;     // Longitude in radians (already correct)
         
         sensors.push(GroundStation::new(i as u32, lat, lon, config));
     }
