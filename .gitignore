@@ -1,0 +1,51 @@
+# Rust Build Artifacts
+/target/
+/target2/
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock for libraries (keep for binaries)
+# Cargo.lock
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated Files
+*.csv
+detected_objects_catalog.csv
+
+# Debug and Profile Data
+*.profraw
+*.profdata
+flamegraph.svg
+perf.data
+perf.data.old
+
+# OS Files
+Thumbs.db
+desktop.ini
+
+# Temporary Files
+*.tmp
+*.temp
+*.log
+
+# Conda/Python (if mixing with Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.env
+.venv
+env/
+venv/
+
+# Backup Files
+*.bak
+*.backup
+*.old
