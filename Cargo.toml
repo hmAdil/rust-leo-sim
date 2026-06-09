@@ -3,14 +3,6 @@ name = "leo_sim"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "leo_sim"
-path = "src/main.rs"
-
-[[bin]]
-name = "test_sgp4"
-path = "test_sgp4.rs"
-
 [dependencies]
 rayon = "1"
 rand = "0.8"
