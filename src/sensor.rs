@@ -40,6 +40,11 @@ impl GroundStation {
         let r_earth = 6371.0; // Earth's radius (km)
         
         // Position on Earth's surface in 3D space (Earth's core as origin)
+        // lat and lon are in radians
+        // Standard spherical to Cartesian conversion:
+        // x = r * cos(lat) * cos(lon)
+        // y = r * cos(lat) * sin(lon)  
+        // z = r * sin(lat)
         let x = r_earth * lat.cos() * lon.cos();
         let y = r_earth * lat.cos() * lon.sin();
         let z = r_earth * lat.sin();
@@ -126,19 +131,22 @@ impl GroundStation {
     }
 }
 
-/// Create observatories distributed around the globe using Fibonacci sphere
+/// Create observatories distributed evenly around the globe using sunflower seed arrangement
 pub fn create_sensors(config: &SimConfig) -> Vec<GroundStation> {
     let mut sensors = Vec::with_capacity(config.n_sensors);
-    let phi = (1.0 + 5.0f64.sqrt()) / 2.0; // Golden ratio for even distribution
-
+    
+    // Sunflower seed arrangement for optimal sphere coverage
+    let n = config.n_sensors as f64;
+    let golden_ratio = (1.0 + 5.0f64.sqrt()) / 2.0;
+    
     for i in 0..config.n_sensors {
-        // Fibonacci sphere distribution for even global coverage
-        let y = 1.0 - (i as f64 + 0.5) / (config.n_sensors as f64);
-        let theta = 2.0 * PI * (i as f64) / phi;
+        let k = i as f64 + 0.5; // Offset by 0.5 to avoid poles
         
-        // Convert to spherical coordinates (latitude and longitude)
-        let lat = y.asin();  // Latitude in radians
-        let lon = theta;     // Longitude in radians (already correct)
+        // Latitude: evenly distributed from -π/2 to π/2
+        let lat = (2.0 * k / n - 1.0).asin();
+        
+        // Longitude: golden angle spiral for even azimuthal distribution
+        let lon = 2.0 * PI * k / golden_ratio;
         
         sensors.push(GroundStation::new(i as u32, lat, lon, config));
     }

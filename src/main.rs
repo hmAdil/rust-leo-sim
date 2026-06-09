@@ -77,6 +77,9 @@ fn parse_args() -> (SimConfig, RunMode) {
                     config.collision_threshold_km = args[i].parse().unwrap();
                 }
             }
+            "--sgp4" => {
+                config.propagator = crate::config::PropagatorType::Sgp4;
+            }
             _ => {}
         }
         i += 1;

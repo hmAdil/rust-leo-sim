@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum PropagatorType {
+    SimpleKeplerian,  // Current simple circular orbits
+    Sgp4,            // SGP4/SDP4 propagator for realistic orbits
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimConfig {
     pub n_objects: usize,
@@ -13,13 +19,14 @@ pub struct SimConfig {
     pub gate_threshold: f64,
     pub collision_threshold_km: f64,
     pub collision_horizon_s: f64,
+    pub propagator: PropagatorType,  // Choose propagation method
 }
 
 impl Default for SimConfig {
     fn default() -> Self {
         Self {
             n_objects: 100_000,
-            n_sensors: 12,  // More observatories for better global coverage
+            n_sensors: 20,  // More observatories for comprehensive global coverage
             dt: 30.0,       // Slower time step for clearer visualization
             steps: 100,
             seed: 42,
@@ -29,6 +36,7 @@ impl Default for SimConfig {
             gate_threshold: 5.0,
             collision_threshold_km: 10.0,
             collision_horizon_s: 600.0,
+            propagator: PropagatorType::SimpleKeplerian,  // Default to simple for speed
         }
     }
 }
@@ -37,7 +45,7 @@ impl SimConfig {
     pub fn for_gui() -> Self {
         Self {
             n_objects: 300,    // Moderate number for clear visualization
-            n_sensors: 16,     // More sensors for better global coverage
+            n_sensors: 24,     // Even more sensors for complete global coverage
             dt: 20.0,          // Slower updates for easier tracking
             steps: usize::MAX,
             ..Self::default()
