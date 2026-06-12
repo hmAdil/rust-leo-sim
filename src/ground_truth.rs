@@ -6,6 +6,7 @@ pub struct EvaluationMetrics {
     pub true_positives: usize,
     pub false_positives: usize,
     pub false_negatives: usize,
+    pub ospa: f64,  // OSPA distance metric
 }
 
 impl EvaluationMetrics {
@@ -14,6 +15,7 @@ impl EvaluationMetrics {
             true_positives: 0,
             false_positives: 0,
             false_negatives: 0,
+            ospa: 0.0,
         }
     }
 

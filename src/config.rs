@@ -6,6 +6,13 @@ pub enum PropagatorType {
     Sgp4,            // SGP4/SDP4 propagator for realistic orbits
 }
 
+/// Tracker type for data association
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum TrackerType {
+    NearestNeighbor,
+    Jpda,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimConfig {
     pub n_objects: usize,
@@ -20,6 +27,8 @@ pub struct SimConfig {
     pub collision_threshold_km: f64,
     pub collision_horizon_s: f64,
     pub propagator: PropagatorType,  // Choose propagation method
+    pub tracker_type: TrackerType,   // Choose tracking algorithm
+    pub stress_test: bool,           // Use clustered object distribution
 }
 
 impl Default for SimConfig {
@@ -37,6 +46,8 @@ impl Default for SimConfig {
             collision_threshold_km: 10.0,
             collision_horizon_s: 600.0,
             propagator: PropagatorType::SimpleKeplerian,  // Default to simple for speed
+            tracker_type: TrackerType::NearestNeighbor,  // Default to nearest-neighbor
+            stress_test: false,                          // Default to uniform distribution
         }
     }
 }
