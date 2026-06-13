@@ -1,6 +1,6 @@
 use crate::config::{PropagatorType, SimConfig};
-use rand::SeedableRng;
-use rand_distr::{Distribution, Uniform};
+use rand::{Rng, SeedableRng};
+use rand_distr::{Distribution, Uniform, Normal};
 use rayon::prelude::*;
 use sgp4::{Elements, Constants};
 use std::f64::consts::PI;
@@ -31,11 +31,6 @@ impl ObjectPool {
         let mut pos = Vec::with_capacity(n);
         let mut vel = Vec::with_capacity(n);
 
-        // LEO range with more variation: 200-2000 km altitude above Earth surface (6371 km radius)
-        // This creates objects at various orbital heights for more diverse visualization
-        let radius_dist = Uniform::new(6571.0, 8371.0);
-        let incl_dist = Uniform::new(0.0, PI);  // Full range of inclinations (0° to 180°)
-        let theta0_dist = Uniform::new(0.0, 2.0 * PI);
         let mu = 398600.4418; // Earth's gravitational parameter (km³/s²)
 
         // For SGP4, we'll also need eccentricity and other elements
@@ -47,19 +42,202 @@ impl ObjectPool {
             None
         };
 
-        for i in 0..n {
-            id.push(i); // Sequential ID for OBJ naming
-            let r: f64 = radius_dist.sample(&mut rng);
-            let inc = incl_dist.sample(&mut rng);
-            let t0 = theta0_dist.sample(&mut rng);
-            let p = 2.0 * PI * (r.powi(3) / mu).sqrt();
+        if config.stress_test {
+            // Stress test mode: clustered objects in dense orbital shells
+            Self::create_stress_test_objects(
+                &mut rng,
+                n,
+                &mut id,
+                &mut radius,
+                &mut incl,
+                &mut theta0,
+                &mut period,
+                &mut pos,
+                &mut vel,
+                &mut sgp4_constants,
+                mu,
+                &ecc_dist,
+            );
+        } else {
+            // Normal mode: uniform LEO distribution
+            let radius_dist = Uniform::new(6571.0, 8371.0);
+            let incl_dist = Uniform::new(0.0, PI);  // Full range of inclinations (0° to 180°)
+            let theta0_dist = Uniform::new(0.0, 2.0 * PI);
 
+            for i in 0..n {
+                id.push(i); // Sequential ID for OBJ naming
+                let r: f64 = radius_dist.sample(&mut rng);
+                let inc = incl_dist.sample(&mut rng);
+                let t0 = theta0_dist.sample(&mut rng);
+                let p = 2.0 * PI * (r.powi(3) / mu).sqrt();
+
+                radius.push(r);
+                incl.push(inc);
+                theta0.push(t0);
+                period.push(p);
+
+                // Position in 3D space with Earth's core at origin
+                let x = r * t0.cos() * inc.cos();
+                let y = r * t0.sin();
+                let z = r * t0.cos() * inc.sin();
+                pos.push([x, y, z]);
+
+                // Circular orbital velocity
+                let v_mag = (mu / r).sqrt();
+                vel.push([
+                    -v_mag * t0.sin() * inc.cos(),
+                    v_mag * t0.cos(),
+                    -v_mag * t0.sin() * inc.sin(),
+                ]);
+
+                // Create and cache SGP4 constants if needed
+                if let Some(ref mut constants_vec) = sgp4_constants {
+                    let ecc = ecc_dist.sample(&mut rng);
+                    let raan = Uniform::new(0.0, 2.0 * PI).sample(&mut rng);
+                    let argp = Uniform::new(0.0, 2.0 * PI).sample(&mut rng);
+                    
+                    let mean_motion = (86400.0 / p) as f32;
+                    
+                    use sgp4::chrono::NaiveDate;
+                    let datetime = NaiveDate::from_ymd_opt(2021, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap();
+                    
+                    let elements = Elements {
+                        object_name: Some(format!("OBJ_{:06}", i)),
+                        international_designator: None,
+                        norad_id: i as u64,
+                        datetime,
+                        inclination: inc,
+                        right_ascension: raan,
+                        eccentricity: ecc,
+                        argument_of_perigee: argp,
+                        mean_anomaly: t0,
+                        mean_motion: mean_motion as f64,
+                        mean_motion_dot: 0.0,
+                        mean_motion_ddot: 0.0,
+                        drag_term: 0.0001,
+                        revolution_number: 0,
+                        classification: sgp4::Classification::Unclassified,
+                        ephemeris_type: 0,
+                        element_set_number: 999,
+                    };
+                    
+                    if let Ok(constants) = Constants::from_elements(&elements) {
+                        constants_vec.push(constants);
+                    } else {
+                        eprintln!("Warning: Failed to create SGP4 constants for object {}", i);
+                    }
+                }
+            }
+        }
+
+        Self {
+            id,
+            radius,
+            incl,
+            theta0,
+            period,
+            pos,
+            vel,
+            sgp4_constants,
+            sim_time: 0.0,
+            propagator: config.propagator,
+        }
+    }
+
+    /// Create objects in clustered orbital shells for stress testing
+    fn create_stress_test_objects(
+        rng: &mut rand::rngs::StdRng,
+        n: usize,
+        id: &mut Vec<usize>,
+        radius: &mut Vec<f64>,
+        incl: &mut Vec<f64>,
+        theta0: &mut Vec<f64>,
+        period: &mut Vec<f64>,
+        pos: &mut Vec<[f64; 3]>,
+        vel: &mut Vec<[f64; 3]>,
+        sgp4_constants: &mut Option<Vec<Constants>>,
+        mu: f64,
+        ecc_dist: &Uniform<f64>,
+    ) {
+        // 5 orbital shells at specific altitudes (km from Earth's core)
+        let shell_radii = [6921.0, 6971.0, 7021.0, 7071.0, 7121.0]; // 550, 600, 650, 700, 750 km altitude
+        let objects_per_shell = n / shell_radii.len();
+        
+        // Generate 3 random hotspots per shell
+        let mut hotspots: Vec<([f64; 3], f64)> = Vec::new(); // (center, radius)
+        for shell_r in &shell_radii {
+            for _ in 0..3 {
+                // Random point on sphere
+                let lat = Uniform::new(-PI/2.0, PI/2.0).sample(rng);
+                let lon = Uniform::new(0.0, 2.0 * PI).sample(rng);
+                let x = shell_r * lat.cos() * lon.cos();
+                let y = shell_r * lat.cos() * lon.sin();
+                let z = shell_r * lat.sin();
+                hotspots.push(([x, y, z], 50.0)); // 50 km radius hotspot
+            }
+        }
+        
+        for i in 0..n {
+            id.push(i);
+            
+            // Select shell
+            let shell_idx = i / objects_per_shell;
+            let shell_idx = shell_idx.min(shell_radii.len() - 1);
+            let r = shell_radii[shell_idx];
+            
+            // 70% clustered, 30% uniform
+            let use_cluster = rng.sample(&Uniform::new(0, 10)) < 7;
+            
+            let (inc, t0) = if use_cluster {
+                // Pick a random hotspot and place object near it
+                let hotspot_idx = (i % 3) + shell_idx * 3;
+                let (center, _hotspot_r) = hotspots[hotspot_idx];
+                
+                // Generate random offset within hotspot
+                let offset_dist = Normal::new(0.0, 25.0).unwrap(); // 25 km std dev
+                let offset_x = offset_dist.sample(rng);
+                let offset_y = offset_dist.sample(rng);
+                let offset_z = offset_dist.sample(rng);
+                
+                // Convert position back to spherical coords
+                let x = center[0] + offset_x;
+                let y = center[1] + offset_y;
+                let z = center[2] + offset_z;
+                
+                // Clamp to shell radius
+                let actual_r = (x*x + y*y + z*z).sqrt();
+                let scale = r / actual_r;
+                let x = x * scale;
+                let y = y * scale;
+                let z = z * scale;
+                
+                // Get inclination and true anomaly from position
+                let t0 = (x != 0.0 || z != 0.0).then(|| (x*x + z*z).sqrt())
+                    .map(|r_xz| (y / r_xz).atan2(x / r_xz))
+                    .unwrap_or(0.0);
+                let inc = (x != 0.0 || y != 0.0 || z != 0.0).then(|| z / (x*x + y*y + z*z).sqrt())
+                    .map(|cos_inc| cos_inc.acos())
+                    .unwrap_or(0.0);
+                
+                (inc, t0)
+            } else {
+                // Uniform distribution
+                let inc = rng.sample(&Uniform::new(0.0, PI));
+                let t0 = rng.sample(&Uniform::new(0.0, 2.0 * PI));
+                (inc, t0)
+            };
+            
+            let p = 2.0 * PI * (r.powi(3) / mu).sqrt();
+            
             radius.push(r);
             incl.push(inc);
             theta0.push(t0);
             period.push(p);
 
-            // Position in 3D space with Earth's core at origin
+            // Position in 3D space
             let x = r * t0.cos() * inc.cos();
             let y = r * t0.sin();
             let z = r * t0.cos() * inc.sin();
@@ -73,17 +251,14 @@ impl ObjectPool {
                 -v_mag * t0.sin() * inc.sin(),
             ]);
 
-            // Create and cache SGP4 constants if needed
+            // SGP4 constants
             if let Some(ref mut constants_vec) = sgp4_constants {
-                let ecc = ecc_dist.sample(&mut rng);
-                let raan = Uniform::new(0.0, 2.0 * PI).sample(&mut rng); // Right ascension of ascending node
-                let argp = Uniform::new(0.0, 2.0 * PI).sample(&mut rng); // Argument of perigee
+                let ecc = ecc_dist.sample(rng);
+                let raan = Uniform::new(0.0, 2.0 * PI).sample(rng);
+                let argp = Uniform::new(0.0, 2.0 * PI).sample(rng);
                 
-                // Convert orbital parameters to TLE-like elements
-                // Mean motion in revolutions per day
                 let mean_motion = (86400.0 / p) as f32;
                 
-                // Create SGP4 elements using the current API
                 use sgp4::chrono::NaiveDate;
                 let datetime = NaiveDate::from_ymd_opt(2021, 1, 1)
                     .unwrap()
@@ -103,34 +278,19 @@ impl ObjectPool {
                     mean_motion: mean_motion as f64,
                     mean_motion_dot: 0.0,
                     mean_motion_ddot: 0.0,
-                    drag_term: 0.0001,  // Small drag for LEO
+                    drag_term: 0.0001,
                     revolution_number: 0,
                     classification: sgp4::Classification::Unclassified,
                     ephemeris_type: 0,
                     element_set_number: 999,
                 };
                 
-                // Pre-compute constants (this is the expensive part - do it once!)
                 if let Ok(constants) = Constants::from_elements(&elements) {
                     constants_vec.push(constants);
                 } else {
-                    // Fallback if constants creation fails
                     eprintln!("Warning: Failed to create SGP4 constants for object {}", i);
                 }
             }
-        }
-
-        Self {
-            id,
-            radius,
-            incl,
-            theta0,
-            period,
-            pos,
-            vel,
-            sgp4_constants,
-            sim_time: 0.0,
-            propagator: config.propagator,
         }
     }
 

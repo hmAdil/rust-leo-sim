@@ -1,6 +1,7 @@
 use crate::collision::CollisionPair;
 use crate::config::SimConfig;
 use crate::sim::{Simulation, StepSummary};
+use crate::config::TrackerType;
 use eframe::egui;
 use egui::Color32;
 use std::collections::HashSet;
@@ -11,6 +12,7 @@ pub fn run(config: SimConfig) {
     gui_config.n_sensors = config.n_sensors;
     gui_config.collision_threshold_km = config.collision_threshold_km;
     gui_config.collision_horizon_s = config.collision_horizon_s;
+    gui_config.tracker_type = config.tracker_type;
     if config.n_objects != SimConfig::default().n_objects {
         gui_config.n_objects = config.n_objects;
     }
@@ -71,6 +73,22 @@ impl LeoApp {
         }
     }
 
+    fn get_confirmed_tracks(&self) -> Vec<&crate::tracker::Track> {
+        if self.sim.config.tracker_type == TrackerType::Jpda {
+            self.sim.tracker_jpda.as_ref().unwrap().confirmed_track_refs()
+        } else {
+            self.sim.tracker_nn.confirmed_track_refs()
+        }
+    }
+
+    fn get_track(&self, track_id: u64) -> Option<&crate::tracker::Track> {
+        if self.sim.config.tracker_type == TrackerType::Jpda {
+            self.sim.tracker_jpda.as_ref().unwrap().get_track(track_id)
+        } else {
+            self.sim.tracker_nn.get_track(track_id)
+        }
+    }
+
     fn advance(&mut self) {
         if self.sim.finished {
             return;
@@ -80,7 +98,7 @@ impl LeoApp {
         let mut newly_detected = HashSet::new();
         let mut sensor_detections: std::collections::HashMap<usize, Vec<u32>> = std::collections::HashMap::new();
         
-        let confirmed_tracks = self.sim.tracker.confirmed_track_refs();
+        let confirmed_tracks = self.get_confirmed_tracks();
         for track in &confirmed_tracks {
             newly_detected.insert(track.object_id);
             
@@ -191,13 +209,13 @@ impl eframe::App for LeoApp {
                             
                             // Check if this object is in a collision warning
                             let has_collision = self.collisions.iter().any(|pair| {
-                                if let Some(track_a) = self.sim.tracker.confirmed_track_refs()
+                                if let Some(track_a) = self.get_confirmed_tracks()
                                     .iter().find(|t| t.track_id == pair.track_a) {
                                     if track_a.object_id == *obj_idx {
                                         return true;
                                     }
                                 }
-                                if let Some(track_b) = self.sim.tracker.confirmed_track_refs()
+                                if let Some(track_b) = self.get_confirmed_tracks()
                                     .iter().find(|t| t.track_id == pair.track_b) {
                                     if track_b.object_id == *obj_idx {
                                         return true;
@@ -231,8 +249,7 @@ impl eframe::App for LeoApp {
                                 ui.label(format!("   Detected by: {}", obs_names.join(", ")));
                             }
                             
-                            ui.label(format!("   Pos: [{:.0}, {:.0}, {:.0}] km", 
-                                pos[0], pos[1], pos[2]));
+                            ui.label(format!("   Pos: [{:.0}, {:.0}, {:.0}] km", pos[0], pos[1], pos[2]));
                             ui.separator();
                         }
                         if detected_list.len() > 50 {
@@ -286,7 +303,7 @@ impl eframe::App for LeoApp {
                 ui.heading("🛰 Object Inspector");
                 ui.separator();
                 if let Some(track_id) = self.selected_track {
-                    if let Some(track) = self.sim.tracker.get_track(track_id) {
+                    if let Some(track) = self.get_track(track_id) {
                         let object_name = self.sim.objects.get_name(track.object_id);
                         ui.label(format!("Object: {}", object_name));
                         ui.label(format!("Track ID: {}", track.track_id));
@@ -467,7 +484,7 @@ impl eframe::App for LeoApp {
                 let is_detected = self.detected_objects_flash.contains(&idx) && self.flash_timer > 0.0;
                 
                 // Check if it's part of a confirmed track
-                let is_tracked = self.sim.tracker.confirmed_track_refs()
+                let is_tracked = self.get_confirmed_tracks()
                     .iter()
                     .any(|track| track.object_id == idx);
 
@@ -516,7 +533,7 @@ impl eframe::App for LeoApp {
             // Draw collision warnings
             for pair in self.collisions.iter().take(10) {
                 for track_id in [pair.track_a, pair.track_b] {
-                    if let Some(track) = self.sim.tracker.get_track(track_id) {
+                    if let Some(track) = self.get_track(track_id) {
                         let pos = project(track.predicted_pos);
                         painter.circle_stroke(pos, 8.0, egui::Stroke::new(2.0, Color32::RED));
                     }
@@ -525,7 +542,7 @@ impl eframe::App for LeoApp {
 
             // Draw selected track path
             if let Some(sel_id) = self.selected_track {
-                if let Some(track) = self.sim.tracker.get_track(sel_id) {
+                if let Some(track) = self.get_track(sel_id) {
                     let history_points: Vec<_> = track.history()
                         .iter()
                         .map(|obs| project(obs.position))

@@ -1,51 +1,64 @@
-# Rust Build Artifacts
-/target/
-/target2/
+# Rust
+
+/target
 **/*.rs.bk
-*.pdb
+Cargo.lock
 
-# Cargo.lock for libraries (keep for binaries)
-# Cargo.lock
+# IDEs
 
-# IDEs and Editors
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Generated Files
-*.csv
-detected_objects_catalog.csv
-
-# Debug and Profile Data
-*.profraw
-*.profdata
-flamegraph.svg
-perf.data
-perf.data.old
 
 # OS Files
-Thumbs.db
-desktop.ini
 
-# Temporary Files
-*.tmp
-*.temp
+.DS_Store
+Thumbs.db
+
+# Generated Outputs
+
+detected_objects_catalog.csv
+density_sweep_results.json
+desnity_sweep_nn.json
+benchmark_report.json
+simulation_report.json
+
+# Logs
+
 *.log
 
-# Conda/Python (if mixing with Python tools)
-__pycache__/
-*.py[cod]
-*$py.class
-.Python
-.env
-.venv
-env/
-venv/
+# Temporary Files
 
-# Backup Files
+*.tmp
+*.temp
+
+# Profiling / Benchmark Artifacts
+
+flamegraph.svg
+perf.data*
+
+# Cargo
+
+.cargo/
+
+# Build Artifacts
+
+debug/
+release/
+
+# GUI Runtime Artifacts
+
+*.ron
+*.cache
+
+# Generated Data Exports
+
+*.csv
+*.json
+!density_sweep_nn.json
+!README.md
+
+# Misc
+
 *.bak
-*.backup
-*.old
+*.swp
+*.swo

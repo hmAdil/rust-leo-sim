@@ -1,0 +1,50 @@
+[
+  {
+    "n_objects": 100,
+    "mean_precision": 0.96,
+    "mean_recall": 0.8095486520901909,
+    "mean_f1": 0.8770153484880123,
+    "mean_step_time_ms": 0.0,
+    "mean_tracks_confirmed": 24.8
+  },
+  {
+    "n_objects": 500,
+    "mean_precision": 0.96,
+    "mean_recall": 0.8131446564811788,
+    "mean_f1": 0.8799928443697502,
+    "mean_step_time_ms": 0.84,
+    "mean_tracks_confirmed": 119.26
+  },
+  {
+    "n_objects": 1000,
+    "mean_precision": 0.96,
+    "mean_recall": 0.814129580871501,
+    "mean_f1": 0.8806886857570696,
+    "mean_step_time_ms": 4.24,
+    "mean_tracks_confirmed": 251.58
+  },
+  {
+    "n_objects": 2000,
+    "mean_precision": 0.96,
+    "mean_recall": 0.8145364036167425,
+    "mean_f1": 0.8810478356620852,
+    "mean_step_time_ms": 6.0,
+    "mean_tracks_confirmed": 499.2
+  },
+  {
+    "n_objects": 5000,
+    "mean_precision": 0.96,
+    "mean_recall": 0.8151194123696888,
+    "mean_f1": 0.881448285906569,
+    "mean_step_time_ms": 7.96,
+    "mean_tracks_confirmed": 1244.4
+  },
+  {
+    "n_objects": 10000,
+    "mean_precision": 0.96,
+    "mean_recall": 0.8158455661281704,
+    "mean_f1": 0.8818881324511426,
+    "mean_step_time_ms": 10.28,
+    "mean_tracks_confirmed": 2471.68
+  }
+]

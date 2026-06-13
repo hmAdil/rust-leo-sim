@@ -1,241 +1,184 @@
-# LEO Observatory Network - 3D Space Object Tracking
+# LEO Observatory Network – Space Object Tracking Simulation
 
-A high-performance satellite tracking simulation featuring real-time 3D visualization of orbital mechanics, ground-based observatory networks, and collision detection with **SGP4 support**.
+A Rust-based Space Situational Awareness (SSA) simulation designed as a classical baseline for future Graph Neural Network (GNN) data-association research inspired by ISRO's NETRA program.
+
+The simulator models thousands of orbiting objects, a global network of ground observatories, multi-sensor tracking, collision detection, and catalog generation while providing quantitative evaluation metrics and benchmarking tools.
+
+---
 
 ![Language: Rust](https://img.shields.io/badge/language-Rust-orange.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## Features
 
-- 🌍 **3D Globe Visualization**: Earth sphere with orbiting objects rendered in real-time
-- 🔭 **Observatory Network**: 24 globally distributed ground stations with vision cones
-- 📡 **Live Detection System**: Objects flash green when detected, with detailed logging
-- ⚠️ **Collision Detection**: Real-time collision risk assessment with visual warnings
-- 🛰️ **Object Cataloging**: CSV export of all detected objects with complete state vectors
-- 🎮 **Interactive Camera**: Drag to rotate, scroll to zoom
-- 🚀 **SGP4 Propagator**: Industry-standard realistic orbital mechanics (optional)
+### Orbital Propagation
 
-## Quick Start
+* Simple Keplerian orbit propagation
+* Optional SGP4 propagation (`--sgp4`)
+* Earth-centered 3D coordinate system
+* Parallelized object propagation using Rayon
 
-### Launch 3D GUI (Recommended)
-```bash
-cargo run --release -- --gui
-```
+### Observatory Network
 
-### With SGP4 Realistic Orbits
-```bash
-cargo run --release -- --gui --sgp4
-```
+* Globally distributed ground stations
+* Vision-cone based detection
+* Sensor noise simulation
+* Multi-sensor observation generation
 
-### Run Batch Simulation
-```bash
-cargo run --release -- --steps 100 --objects 10000
-```
+### Data Association
 
-## Installation
+#### Nearest-Neighbor Tracker (Baseline)
 
-```bash
-git clone <repository-url>
-cd leo_sim
-cargo build --release
-```
+* Spatially gated association
+* Fast and scalable
+* Default tracking mode
 
-## GUI Controls
+#### JPDA Tracker
 
-**Playback:**
-- ▶ Play/⏸ Pause - Start/stop simulation
-- ⏭ Step - Advance one time step
-- ⟲ Reset - Restart simulation
-- Speed Slider - 0.1x to 5.0x speed (logarithmic scale)
-
-**Camera:**
-- **Drag** - Rotate view around Earth
-- **Scroll** - Zoom in/out (8,000 - 30,000 km range)
-
-**Display Options:**
-- ☑ Earth - Show Earth sphere with latitude/longitude grid
-- ☑ Observatories - Show ground station locations (orange markers)
-- ☑ Orbital Paths - Show sample orbital trajectories
-
-## Detection Log Format
-
-Each detection entry shows which observatories detected the object:
-
-```
-✓ OBJ_000123 | T=420s | Collision=false
-   Detected by: OBS_03, OBS_08, OBS_15
-   Pos: [7234, -1023, 4567] km
-```
-
-When collision risk is detected:
-```
-✓ OBJ_000456 | T=420s | Collision=true ⚠ COLLISION
-   Detected by: OBS_01, OBS_12
-   Pos: [7234, -1023, 4567] km
-```
-
-## Visual Legend
-
-**Objects:**
-- 🟢 Bright Green - Just detected (flash effect)
-- 🔵 Blue - Confirmed tracked objects
-- ⚪ Dim Gray - Undetected objects
-
-**Observatories:**
-- 🟠 Orange markers with yellow outline - Ground stations
-
-**Warnings:**
-- 🔴 Red circles - Collision risk zones
-
-**Selected Track:**
-- 🟡 Yellow path - Historical trajectory
-
-## Propagation Modes
-
-### Simple Keplerian (Default - Fast)
-```bash
-cargo run --release -- --gui --objects 1000
-```
-- Circular orbits only
-- Very fast (2-5ms for 100k objects)
-- Perfect for visualization and testing
-
-### SGP4 Realistic (Accurate)
-```bash
-cargo run --release -- --gui --objects 200 --sgp4
-```
-- Industry-standard NORAD propagator
-- Atmospheric drag and perturbations
-- Orbital decay over time
-- Elliptical orbits
-- Best for < 5,000 objects
-
-## Command Line Options
+Enable with:
 
 ```bash
---gui                  # Launch graphical interface
---steps N             # Number of simulation steps
---objects N           # Number of orbiting objects
---sensors N           # Number of ground observatories
---seed N              # Random seed for reproducibility
---collision-km N      # Collision threshold distance
---sgp4                # Use SGP4 propagator (realistic orbits)
---bench               # Enable performance benchmarking
+cargo run --release -- --jpda
 ```
 
-## Example Commands
+Features:
 
-**Small test with lots of observatories:**
+* Joint Probabilistic Data Association
+* Gaussian likelihood-based association
+* Soft probabilistic track updates
+* Improved handling of dense observation environments
+
+### Evaluation Metrics
+
+The simulator reports:
+
+* Precision
+* Recall
+* F1 Score
+* OSPA (Optimal Sub-Pattern Assignment)
+
+OSPA is computed using a custom Hungarian Algorithm implementation and provides a stronger measure of tracking quality than classification metrics alone.
+
+### Collision Detection
+
+* Closest-approach prediction
+* Miss-distance estimation
+* Configurable collision threshold
+* Collision candidate reporting
+
+### Stress-Test Scenario
+
+Enable with:
+
 ```bash
-cargo run --release -- --gui --objects 200 --sensors 32
+cargo run --release -- --stress-test
 ```
 
-**Realistic SGP4 simulation:**
+Creates dense orbital environments using:
+
+* 5 orbital shells
+
+  * 550 km
+  * 600 km
+  * 650 km
+  * 700 km
+  * 750 km
+
+Within each shell:
+
+* 70% clustered in hotspot regions
+* 30% uniformly distributed
+
+This scenario is intended to expose classical association failure modes and create challenging datasets for future GNN-based approaches.
+
+### Density Benchmark Suite
+
+Enable with:
+
 ```bash
-cargo run --release -- --gui --objects 300 --sgp4 --sensors 24
+cargo run --release -- --density-sweep
 ```
 
-**High-speed batch processing:**
-```bash
-cargo run --release -- --bench --steps 200 --objects 50000
+Runs simulations at:
+
+* 100 objects
+* 500 objects
+* 1,000 objects
+* 2,000 objects
+* 5,000 objects
+* 10,000 objects
+
+Outputs:
+
+```json
+[
+  {
+    "n_objects": 1000,
+    "mean_precision": 0.96,
+    "mean_recall": 0.81,
+    "mean_f1": 0.88,
+    "mean_step_time_ms": 4.24,
+    "mean_tracks_confirmed": 251.58
+  }
+]
 ```
 
-**Reproducible simulation:**
-```bash
-cargo run --release -- --seed 12345 --steps 100
-```
+Results are:
 
-## Output Files
-
-**detected_objects_catalog.csv** - Generated after simulation
-```csv
-Object_Name,First_Detection_Time_s,Last_Detection_Time_s,
-Position_X_km,Position_Y_km,Position_Z_km,
-Velocity_X_km_s,Velocity_Y_km_s,Velocity_Z_km_s,
-Detection_Count,Tracking_Confidence
-```
-
-## Performance
-
-- **GUI Mode (Keplerian)**: 1,000 objects @ 60 FPS
-- **GUI Mode (SGP4)**: 300 objects @ 60 FPS
-- **Batch Mode (Keplerian)**: 100,000 objects @ 2-5ms per step
-- **Batch Mode (SGP4)**: 10,000 objects @ 50-100ms per step
-- Uses Rayon for parallel computation
-- Spatial indexing for O(1) proximity queries
-
-## Architecture Highlights
-
-- **Coordinate System**: 3D vectors with Earth's core at origin (0,0,0)
-- **Object Naming**: Sequential OBJ_XXXXXX format
-- **Vision Cones**: Each observatory has a 60° FOV cone
-- **Detection**: Only objects within FOV and above horizon are cataloged
-- **Observatory Distribution**: Sunflower seed arrangement for optimal global coverage
-- **Orbital Mechanics**: 
-  - Simple: Circular Keplerian orbits
-  - SGP4: Realistic perturbations, drag, and decay
-
-## Documentation
-
-- `PROJECT_DOCUMENTATION.md` - Complete technical documentation
-- `SGP4_USAGE.md` - Detailed SGP4 propagator guide
-
-## Building
-
-**Debug build:**
-```bash
-cargo build
-```
-
-**Optimized release build:**
-```bash
-cargo build --release
-```
-
-**Check code quality:**
-```bash
-cargo clippy
-```
-
-## Dependencies
-
-- `rayon` - Parallel computation
-- `rand` - Random number generation  
-- `eframe` - GUI framework
-- `egui_plot` - Plotting (batch mode)
-- `serde` - Serialization
-- `sgp4` - Realistic orbital propagator
-
-## Tips for Best Visualization
-
-1. Start with **0.5x speed** to clearly observe detections
-2. Use **Step mode** to examine individual detection events
-3. Enable **Orbital Paths** to see trajectory diversity
-4. Zoom to **12,000-15,000 km** for optimal viewing distance
-5. Rotate view to see global observatory coverage
-6. Watch the detection log for collision warnings
-7. Try **--sgp4 mode** to see realistic orbital decay
-
-## System Requirements
-
-- Rust 1.70+
-- Windows/Linux/macOS
-- 4GB RAM minimum (8GB recommended for large simulations)
-- GPU with OpenGL 3.3+ for GUI
-
-## License
-
-See LICENSE file for details.
-
-## Contributing
-
-Contributions welcome! Areas for enhancement:
-- Load real TLE data from Space-Track.org
-- Implement orbit determination from observations
-- Add more propagator options (numerical integration)
-- Enhanced collision probability calculations
-- Real-time data feeds
+* Printed to stdout
+* Exported to `density_sweep_results.json`
 
 ---
 
-**Ready to track satellites!** 🛰️🌍📡
+## Command Line Options
+
+| Flag               | Description                  |
+| ------------------ | ---------------------------- |
+| `--gui`            | Launch GUI                   |
+| `--bench`          | Run benchmark mode           |
+| `--steps N`        | Simulation steps             |
+| `--objects N`      | Number of objects            |
+| `--sensors N`      | Number of observatories      |
+| `--seed N`         | Random seed                  |
+| `--collision-km N` | Collision threshold          |
+| `--sgp4`           | Enable SGP4 propagation      |
+| `--jpda`           | Use JPDA tracker             |
+| `--stress-test`    | Dense orbital-shell scenario |
+| `--density-sweep`  | Run density benchmark suite  |
+
+---
+
+## Project Structure
+
+```text
+src/
+├── objects.rs
+├── sensor.rs
+├── spatial.rs
+├── tracker.rs
+├── jpda.rs
+├── collision.rs
+├── catalog.rs
+├── ground_truth.rs
+├── hungarian.rs
+├── sim.rs
+├── gui.rs
+├── bench.rs
+├── config.rs
+└── main.rs
+```
+
+---
+
+## Research Motivation
+
+This simulator serves as a classical SSA baseline for evaluating future machine-learning approaches to data association.
+
+The newly added:
+
+* JPDA tracker
+* OSPA evaluation
+* Density benchmark suite
+* Orbital stress-test mode
+
+provide quantitative evidence of how traditional tracking methods degrade as orbital density increases and establish a comparison point for future GNN-based association systems.
