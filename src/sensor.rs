@@ -1,7 +1,7 @@
 use crate::config::SimConfig;
 use crate::objects::ObjectPool;
 use crate::spatial::SpatialIndex;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -105,6 +105,18 @@ impl GroundStation {
                 continue; // Object is outside FOV cone
             }
 
+            // Get object size for detection probability and SNR
+            let size = objects.get_size_meters(idx);
+            // Calculate signal-to-noise ratio based on size and distance
+            // SNR proportional to (size^2) / (distance^2) scaled to get reasonable numbers
+            let snr = (size * size) / (dist * dist) * 1e6;
+            // Detection probability based on size (larger objects easier to detect)
+            // Using exponential model: probability = 1 - exp(-size / 5.0)
+            let detection_prob = 1.0 - (-size / 5.0).exp();
+            if self.rng.gen::<f64>() >= detection_prob {
+                continue; // Object not detected due to size limitations
+            }
+
             // Object is detected - add to observations with noise
             self.observation_buffer.push(ObservationRecord {
                 sensor_id: self.id,
@@ -119,7 +131,7 @@ impl GroundStation {
                     obj_vel[1] + self.vel_noise.sample(&mut self.rng),
                     obj_vel[2] + self.vel_noise.sample(&mut self.rng),
                 ],
-                snr: ((1.0 / dist) * 1e6) as f32,
+                snr: snr as f32,
             });
             self.object_index_buffer.push(idx);
         }

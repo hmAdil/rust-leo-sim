@@ -1,4 +1,4 @@
-use crate::objects::ObjectPool;
+use crate::objects::{ObjectPool, ObjectType};
 use crate::tracker::Track;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,6 +16,8 @@ pub struct CatalogEntry {
     pub velocity: [f64; 3],            // Last known velocity [vx, vy, vz] (km/s)
     pub detection_count: usize,        // Number of times detected
     pub tracking_confidence: f32,      // Tracking confidence (0.0 - 1.0)
+    pub object_type: ObjectType,       // Satellite or Debris
+    pub size_meters: f64,              // Characteristic size in meters
 }
 
 /// Catalog of detected objects (only objects seen by observatories)
@@ -57,6 +59,8 @@ impl ObjectCatalog {
                     velocity: track.predicted_vel,
                     detection_count: 1,
                     tracking_confidence: track.confidence,
+                    object_type: objects.get_object_type(track.object_id),
+                    size_meters: objects.get_size_meters(track.object_id),
                 });
         }
     }
@@ -68,7 +72,7 @@ impl ObjectCatalog {
         // Write CSV header
         writeln!(
             file,
-            "Object_Name,First_Detection_Time_s,Last_Detection_Time_s,Position_X_km,Position_Y_km,Position_Z_km,Velocity_X_km_s,Velocity_Y_km_s,Velocity_Z_km_s,Detection_Count,Tracking_Confidence"
+            "Object_Name,Object_Type,Size_m,First_Detection_Time_s,Last_Detection_Time_s,Position_X_km,Position_Y_km,Position_Z_km,Velocity_X_km_s,Velocity_Y_km_s,Velocity_Z_km_s,Detection_Count,Tracking_Confidence"
         )?;
 
         // Sort entries by object name for consistent output
@@ -79,8 +83,10 @@ impl ObjectCatalog {
         for entry in entries {
             writeln!(
                 file,
-                "{},{:.2},{:.2},{:.6},{:.6},{:.6},{:.8},{:.8},{:.8},{},{:.4}",
+                "{},{},{:.3},{:.2},{:.2},{:.6},{:.6},{:.6},{:.8},{:.8},{:.8},{},{:.4}",
                 entry.object_name,
+                match entry.object_type { ObjectType::Satellite => "Satellite", ObjectType::Debris => "Debris" },
+                entry.size_meters,
                 entry.first_detection_time,
                 entry.last_detection_time,
                 entry.position[0],
