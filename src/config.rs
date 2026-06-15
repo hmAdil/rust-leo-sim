@@ -29,6 +29,12 @@ pub struct SimConfig {
     pub propagator: PropagatorType,  // Choose propagation method
     pub tracker_type: TrackerType,   // Choose tracking algorithm
     pub stress_test: bool,           // Use clustered object distribution
+    // Satellite/debris categorization and sizing
+    pub satellite_ratio: f64,        // Fraction of objects that are satellites (0.0-1.0)
+    pub satellite_size_mean: f64,    // Mean size for satellites in meters
+    pub satellite_size_std: f64,     // Standard deviation for satellite size in meters
+    pub debris_size_min: f64,        // Minimum debris size in meters
+    pub debris_size_max: f64,        // Maximum debris size in meters
 }
 
 impl Default for SimConfig {
@@ -42,12 +48,18 @@ impl Default for SimConfig {
             fov_half_angle: std::f64::consts::PI / 3.0,
             pos_noise_std: 0.5,
             vel_noise_std: 0.005,
-            gate_threshold: 5.0,
+            gate_threshold: 17.0,
             collision_threshold_km: 10.0,
             collision_horizon_s: 600.0,
             propagator: PropagatorType::SimpleKeplerian,  // Default to simple for speed
             tracker_type: TrackerType::NearestNeighbor,  // Default to nearest-neighbor
             stress_test: false,                          // Default to uniform distribution
+            // Satellite/debris categorization and sizing
+            satellite_ratio: 0.15,        // 15% satellites, 85% debris
+            satellite_size_mean: 2.0,     // meters
+            satellite_size_std: 1.0,      // meters
+            debris_size_min: 0.01,        // 1 cm
+            debris_size_max: 2.0,         // meters
         }
     }
 }
