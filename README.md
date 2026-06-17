@@ -25,15 +25,20 @@ A high-performance Rust-based space surveillance simulation modeling Low Earth O
 
 This simulation models the complete SSA pipeline: orbital propagation → ground-based detection → data association → track maintenance → collision detection → catalog generation. The system handles 100,000+ space objects with realistic sensor characteristics, producing quantitative evaluation metrics suitable for algorithm benchmarking and mission planning.
 
+**Real-Time Demonstration Mode:** Track 131+ real satellites (ISS, GPS, Weather) using actual CelesTrak TLE data with live visualization.
+
 ### Key Capabilities
 
 - **Massive Scale**: Simulate 100,000+ orbital objects with parallel propagation
+- **Real Satellite Data**: Track actual satellites using CelesTrak TLE data (131+ satellites: ISS, GPS, Weather)
 - **Realistic Detection**: Vision cone-based ground stations with measurement noise
 - **Multiple Tracking Algorithms**: Nearest-neighbor and JPDA (Joint Probabilistic Data Association)
 - **Advanced Metrics**: Precision, Recall, F1, and OSPA (Optimal Sub-Pattern Assignment)
 - **Collision Analysis**: Linear closest-approach prediction with configurable thresholds
-- **Real-time Visualization**: 3D GUI with track history and collision warnings
+- **Interactive Visualization**: 3D GUI with track history and collision warnings
+- **Real-Time Live Tracking**: Demonstration mode using actual CelesTrak satellite data
 - **Benchmark Suite**: Density sweep analysis for scalability testing
+- **Data Export**: CSV export of satellite catalog and TLE data
 
 ---
 
@@ -63,6 +68,68 @@ Position:         r(t) = [r·cos(θ)·cos(i), r·sin(θ), r·cos(θ)·sin(i)]
 **Trade-offs:**
 - Simple Keplerian: ~2-5ms for 100K objects
 - SGP4: ~15-30ms for 100K objects (more realistic)
+
+#### CelesTrak Integration (Real Satellite Data)
+
+Download and track real satellites using Two-Line Element (TLE) data from CelesTrak:
+
+**Data Storage:**
+- TLE data is automatically downloaded and cached in the `dataset/` folder
+- First run downloads from CelesTrak (~10-100KB per group)
+- Subsequent runs use cached data for instant startup
+- Cache files named by group: `dataset/stations.txt`, `dataset/gps-ops.txt`, etc.
+- **Real satellite names preserved** from TLE data (e.g., "ISS (ZARYA)", "GPS BIIR-5 (PRN 22)")
+
+**Real-Time Mode Default Groups:**
+When running `--realtime-gui`, the system automatically loads:
+- `stations` - ~25 satellites (ISS, Tiangong, CSS)
+- `gps-ops` - ~32 satellites (GPS constellation)
+- `weather` - ~74 satellites (NOAA, GOES, MetOp)
+- **Total: 131+ real satellites with actual names**
+
+**Manual Download (if automatic download fails):**
+```bash
+# Windows PowerShell
+.\download_tle_data.ps1 stations
+.\download_tle_data.ps1 gps-ops
+.\download_tle_data.ps1 weather
+
+# Or manually download from: https://celestrak.org/NORAD/elements/
+# Save TLE files to: dataset/<group-name>.txt
+```
+
+**Export to CSV:**
+```powershell
+# Export all downloaded satellites to CSV
+.\export_satellites_to_csv.ps1
+
+# View the CSV
+Get-Content satellites.csv | Select-Object -First 10
+```
+
+**Available Groups:**
+```bash
+cargo run --release -- --list-celestrak-groups
+```
+
+Common groups:
+- `stations` - International Space Station, Tiangong, etc. (~10 objects)
+- `active` - All active satellites (~5000+ objects)
+- `starlink` - SpaceX Starlink constellation (~5000+ objects)
+- `gps-ops` - GPS operational satellites (~30 objects)
+- `weather` - Weather satellites (~100 objects)
+
+**Usage:**
+```bash
+cargo run --release -- --celestrak-group stations --steps 100
+```
+
+When using CelesTrak data:
+- Automatically uses SGP4 propagator
+- Object count determined by downloaded TLE data
+- **Real satellite names displayed** in GUI and exports
+- Falls back to random simulation if download fails
+- All objects classified as satellites (not debris)
 
 ### 2. Observatory Network
 
@@ -267,7 +334,7 @@ Runs simulations at multiple object counts:
 ]
 ```
 
-### 9. Real-Time GUI
+### 9. Interactive GUI Mode
 
 Enable with --gui flag.
 
@@ -280,6 +347,89 @@ Enable with --gui flag.
 - Real-time statistics panel
 - Observatory network display
 - Object inspector with complete state vectors
+
+### 10. Real-Time Live Tracking Mode
+
+Enable with --realtime-gui flag.
+
+**Purpose:** Live demonstration using real satellite data from CelesTrak, displaying actual satellite names and orbits.
+
+**Key Features:**
+- **Same GUI as interactive mode**: Full 3D visualization, track inspector, collision monitoring
+- **Real satellite data**: Automatically loads 131+ satellites from multiple CelesTrak groups
+  - Stations group: ~25 satellites (ISS, Tiangong, CSS)
+  - GPS-OPS group: ~32 satellites (GPS constellation)
+  - Weather group: ~74 satellites (NOAA, GOES, MetOp, etc.)
+- **Real satellite names displayed**: See actual names like "ISS (ZARYA)", "GPS BIIR-5 (PRN 22)", not generic IDs
+- **Local caching**: Downloads once to `dataset/` folder, instant startup on subsequent runs
+- **Real-time operation**: Simulation advances at wall-clock rate (1 second sim = 1 second real)
+- **Automatic playback**: Starts playing automatically at 1x speed
+- **CSV export**: Export all satellite data to CSV format with the included script
+
+**Console Output (Proof of Real Data):**
+```
+🛰  Loading satellite data from multiple CelesTrak groups
+   Groups: ["stations", "gps-ops", "weather"]
+📡 Loading group: stations
+📂 Loading cached TLE data from: dataset/stations.txt
+  ✓ Loaded 25 satellites from stations
+📡 Loading group: gps-ops
+  ✓ Loaded 32 satellites from gps-ops
+📡 Loading group: weather
+  ✓ Loaded 74 satellites from weather
+🛰  Total satellites loaded: 131
+✓ Successfully initialized 131 satellite objects from multiple groups
+```
+
+**How to Verify It's Real Data:**
+1. Check console output - shows "Loading satellite data from multiple CelesTrak groups"
+2. Check `dataset/` folder - contains cached TLE files (stations.txt, gps-ops.txt, weather.txt)
+3. Object names in GUI show real satellites (e.g., "ISS (ZARYA)", not "OBJ_000001")
+4. Export to CSV: `.\export_satellites_to_csv.ps1` creates `satellites.csv` with 131 real satellites
+5. Title bar shows "REAL-TIME Live Tracking"
+
+**Manual Data Management:**
+
+Download individual satellite groups:
+```powershell
+.\download_tle_data.ps1 stations
+.\download_tle_data.ps1 gps-ops
+.\download_tle_data.ps1 weather
+.\download_tle_data.ps1 galileo
+```
+
+Export all downloaded satellites to CSV:
+```powershell
+.\export_satellites_to_csv.ps1
+# Creates satellites.csv with columns: ID, Name, NORAD_ID, Group, Inclination, Type
+```
+
+View downloaded data:
+```powershell
+# List cached TLE files
+Get-ChildItem dataset/
+
+# View CSV export
+Get-Content satellites.csv | Select-Object -First 10
+```
+
+**Differences from Interactive GUI:**
+- Uses real CelesTrak data instead of random objects
+- Automatically starts in "playing" mode at 1x speed
+- Always uses SGP4 propagator for realistic orbital mechanics
+- Title indicates "REAL-TIME Live Tracking"
+
+**Use Cases:**
+- Live demonstration of SSA system capabilities with real data
+- Operator training with actual satellite orbits
+- System validation under real-time constraints
+- Proof-of-concept for operational tracking networks
+
+**Data Source:**
+By default uses the "stations" group from CelesTrak (ISS, Tiangong, etc.). Can be customized with:
+```bash
+cargo run --release -- --realtime-gui --celestrak-group active
+```
 
 ---
 
@@ -348,9 +498,20 @@ cargo build --release
 cargo run --release
 ```
 
-**GUI Mode:**
+**Interactive GUI Mode:**
 ```bash
 cargo run --release -- --gui
+```
+
+**Real-Time Live Tracking (with real satellite data):**
+```bash
+cargo run --release -- --realtime-gui
+```
+
+**Real-Time with Different CelesTrak Group:**
+```bash
+cargo run --release -- --realtime-gui --celestrak-group active
+cargo run --release -- --realtime-gui --celestrak-group starlink
 ```
 
 **Benchmark Mode:**
@@ -377,7 +538,8 @@ cargo run --release -- --sgp4 --objects 10000 --steps 50
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| --gui | Launch real-time GUI | Off |
+| --gui | Launch interactive GUI | Off |
+| --realtime-gui | Launch real-time tracking with CelesTrak data | Off |
 | --bench | Enable benchmark mode | Off |
 | --steps N | Number of simulation steps | 100 |
 | --objects N | Number of objects | 100000 |
@@ -388,6 +550,8 @@ cargo run --release -- --sgp4 --objects 10000 --steps 50
 | --jpda | Use JPDA tracker | Nearest-neighbor |
 | --stress-test | Dense orbital shells | Uniform distribution |
 | --density-sweep | Run density benchmark | Off |
+| --celestrak-group GROUP | Use real CelesTrak satellite data | None |
+| --list-celestrak-groups | List available CelesTrak groups | - |
 
 ---
 
@@ -421,11 +585,28 @@ pub struct SimConfig {
 
 ### GUI Configuration
 
-Reduced object count for real-time performance:
+**Interactive GUI Mode (--gui):**
+Reduced object count for interactive performance:
 - Objects: 300 (vs 100000 in batch mode)
 - Sensors: 24
 - Time step: 20 seconds
 - Unlimited steps
+- User-controlled playback speed
+
+**Real-Time Mode (--realtime-gui):**
+Optimized for live tracking demonstration with real satellite data:
+- **Real satellite data**: 131+ satellites from multiple CelesTrak groups
+  - Stations: ~25 (ISS, Tiangong, CSS)
+  - GPS-OPS: ~32 (GPS constellation)
+  - Weather: ~74 (NOAA, GOES, MetOp)
+- **Real names displayed**: "ISS (ZARYA)", "GPS BIIR-5 (PRN 22)", etc.
+- Sensors: 24
+- Time step: 1.0 seconds (synchronized to wall-clock)
+- Unlimited steps
+- Automatic playback at 1x speed
+- SGP4 propagator enabled by default
+- Same full-featured GUI as interactive mode
+- Data cached locally in `dataset/` folder
 
 ---
 
@@ -558,6 +739,13 @@ Columns:
 - **Launch Window Analysis**: Simulate congested orbital regimes
 - **Deorbit Strategy**: Model debris removal scenarios
 - **Conjunction Avoidance**: Evaluate collision risk over time
+
+### Real-Time Operations
+
+- **Live Tracking Demonstration**: Proof-of-concept for real-time SSA systems
+- **Operator Training**: Visualize detection and tracking workflows
+- **System Validation**: Verify algorithm performance under real-time constraints
+- **Ground Station Operations**: Simulate multi-sensor coordination and data fusion
 
 ---
 

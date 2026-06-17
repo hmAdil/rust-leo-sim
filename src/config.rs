@@ -35,6 +35,11 @@ pub struct SimConfig {
     pub satellite_size_std: f64,     // Standard deviation for satellite size in meters
     pub debris_size_min: f64,        // Minimum debris size in meters
     pub debris_size_max: f64,        // Maximum debris size in meters
+    // CelesTrak integration
+    pub celestrak_group: Option<String>,  // Download real satellite data from CelesTrak
+    pub celestrak_multi_group: bool,      // Use multiple groups for more objects
+    // Real-time simulation mode
+    pub realtime_mode: bool,         // Run simulation in real-time (for live tracking demo)
 }
 
 impl Default for SimConfig {
@@ -60,6 +65,11 @@ impl Default for SimConfig {
             satellite_size_std: 1.0,      // meters
             debris_size_min: 0.01,        // 1 cm
             debris_size_max: 2.0,         // meters
+            // CelesTrak integration
+            celestrak_group: None,        // No CelesTrak download by default
+            celestrak_multi_group: false, // Single group by default
+            // Real-time mode
+            realtime_mode: false,         // Fast simulation by default
         }
     }
 }
@@ -71,6 +81,20 @@ impl SimConfig {
             n_sensors: 24,     // Even more sensors for complete global coverage
             dt: 20.0,          // Slower updates for easier tracking
             steps: usize::MAX,
+            ..Self::default()
+        }
+    }
+    
+    pub fn for_realtime_gui() -> Self {
+        Self {
+            n_objects: 300,      // Will be overridden if using CelesTrak
+            n_sensors: 24,
+            dt: 1.0,             // 1 second real-time steps
+            steps: usize::MAX,
+            realtime_mode: true,
+            propagator: PropagatorType::Sgp4,  // Use SGP4 for real-time accuracy
+            celestrak_group: Some("realtime".to_string()), // Special keyword for multiple groups
+            celestrak_multi_group: true,  // Load multiple groups
             ..Self::default()
         }
     }

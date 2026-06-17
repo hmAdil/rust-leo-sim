@@ -119,6 +119,14 @@ impl LeoApp {
         }
     }
 
+    /// Create a new LeoApp in real-time mode (automatically playing at 1x speed)
+    fn new_realtime(config: SimConfig) -> Self {
+        let mut app = Self::new(config);
+        app.playing = true;  // Start playing automatically
+        app.speed = 1.0;     // Real-time speed (1x)
+        app
+    }
+
     fn get_confirmed_tracks(&self) -> Vec<&crate::tracker::Track> {
         if self.sim.config.tracker_type == TrackerType::Jpda {
             self.sim.tracker_jpda.as_ref().unwrap().confirmed_track_refs()
@@ -951,4 +959,39 @@ impl eframe::App for LeoApp {
             }
         });
     }
+}
+
+
+/// Run GUI in real-time mode - uses the same GUI but with real CelesTrak data fed in gradually
+pub fn run_realtime(config: SimConfig) {
+    let mut gui_config = SimConfig::for_realtime_gui();
+    gui_config.seed = config.seed;
+    gui_config.n_sensors = config.n_sensors;
+    gui_config.collision_threshold_km = config.collision_threshold_km;
+    gui_config.collision_horizon_s = config.collision_horizon_s;
+    gui_config.tracker_type = config.tracker_type;
+    
+    // Only override celestrak_group if explicitly provided
+    if config.celestrak_group.is_some() {
+        gui_config.celestrak_group = config.celestrak_group.clone();
+        gui_config.celestrak_multi_group = false; // Single group if specified
+    }
+    // Otherwise keep the default "realtime" multi-group setting
+    
+    if config.n_objects != SimConfig::default().n_objects {
+        gui_config.n_objects = config.n_objects;
+    }
+    
+    let config = gui_config;
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1600.0, 1000.0])
+            .with_title("LEO Observatory Network - REAL-TIME Live Tracking"),
+        ..Default::default()
+    };
+    let _ = eframe::run_native(
+        "leo_sim_realtime_gui",
+        options,
+        Box::new(|_| Ok(Box::new(LeoApp::new_realtime(config)))),
+    );
 }

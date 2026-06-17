@@ -1,5 +1,6 @@
 mod bench;
 mod catalog;
+pub mod celestrak;  // Public for export tool
 mod collision;
 mod config;
 mod ground_truth;
@@ -48,6 +49,7 @@ struct RunMode {
     bench: bool,
     gui: bool,
     density_sweep: bool,
+    realtime_gui: bool,
 }
 
 fn parse_args() -> (SimConfig, RunMode) {
@@ -57,6 +59,7 @@ fn parse_args() -> (SimConfig, RunMode) {
         bench: false,
         gui: false,
         density_sweep: false,
+        realtime_gui: false,
     };
 
     let mut i = 1;
@@ -70,6 +73,7 @@ fn parse_args() -> (SimConfig, RunMode) {
             }
             "--bench" => mode.bench = true,
             "--gui" => mode.gui = true,
+            "--realtime-gui" => mode.realtime_gui = true,
             "--objects" => {
                 i += 1;
                 if i < args.len() {
@@ -106,6 +110,23 @@ fn parse_args() -> (SimConfig, RunMode) {
             "--density-sweep" => {
                 mode.density_sweep = true;
             }
+            "--celestrak-group" => {
+                i += 1;
+                if i < args.len() {
+                    config.celestrak_group = Some(args[i].clone());
+                    // Force SGP4 when using real data
+                    config.propagator = crate::config::PropagatorType::Sgp4;
+                }
+            }
+            "--list-celestrak-groups" => {
+                println!("Available CelesTrak satellite groups:");
+                println!("{}", "-".repeat(60));
+                for (group, description) in celestrak::available_groups() {
+                    println!("  {:20} - {}", group, description);
+                }
+                println!("\nUsage: --celestrak-group <group>");
+                std::process::exit(0);
+            }
             _ => {}
         }
         i += 1;
@@ -118,6 +139,8 @@ fn main() {
     let (config, mode) = parse_args();
     if mode.gui {
         gui::run(config);
+    } else if mode.realtime_gui {
+        gui::run_realtime(config);
     } else if mode.density_sweep {
         run_density_sweep();
     } else if mode.bench {

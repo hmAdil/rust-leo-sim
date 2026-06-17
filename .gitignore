@@ -21,6 +21,11 @@ density_sweep_results.json
 desnity_sweep_nn.json
 benchmark_report.json
 simulation_report.json
+run_metrics_snapshot.json
+
+# CelesTrak Downloaded Data
+dataset/
+!dataset/.gitkeep
 
 # Logs
 

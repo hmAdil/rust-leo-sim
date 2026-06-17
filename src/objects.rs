@@ -14,6 +14,7 @@ pub enum ObjectType {
 
 pub struct ObjectPool {
     pub id: Vec<usize>,        // Sequential ID for naming (OBJ_001, etc)
+    pub names: Vec<String>,    // Real satellite names (from TLE) or generated names
     pub radius: Vec<f64>,      // Orbital radius from Earth's core (km)
     pub incl: Vec<f64>,        // Inclination (radians)
     pub theta0: Vec<f64>,      // Initial true anomaly (radians)
@@ -30,6 +31,15 @@ pub struct ObjectPool {
 
 impl ObjectPool {
     pub fn new(config: &SimConfig) -> Self {
+        // Check if we should load real satellite data from CelesTrak
+        if let Some(ref group) = config.celestrak_group {
+            if config.celestrak_multi_group || group == "realtime" {
+                return Self::from_celestrak_multi(config);
+            } else {
+                return Self::from_celestrak(group, config);
+            }
+        }
+        
         let mut rng = rand::rngs::StdRng::seed_from_u64(config.seed);
 
         let n = config.n_objects;
@@ -52,9 +62,9 @@ impl ObjectPool {
             None
         };
 
-        let mut object_type: Vec<ObjectType> = Vec::new();
-        let mut size_meters: Vec<f64> = Vec::new();
-        let mut rcs: Vec<f64> = Vec::new();
+        let object_type: Vec<ObjectType>;
+        let size_meters: Vec<f64>;
+        let rcs: Vec<f64>;
 
         if config.stress_test {
             // Stress test mode: clustered objects in dense orbital shells
@@ -192,8 +202,12 @@ impl ObjectPool {
             rcs = rcs_vec;
         }
 
+        // Generate names for all objects
+        let names: Vec<String> = id.iter().map(|i| format!("OBJ_{:06}", i)).collect();
+
         Self {
             id,
+            names,
             radius,
             incl,
             theta0,
@@ -461,7 +475,7 @@ impl ObjectPool {
     }
 
     pub fn get_name(&self, idx: usize) -> String {
-        format!("OBJ_{:06}", self.id[idx])
+        self.names[idx].clone()
     }
 
     #[allow(dead_code)]
@@ -487,5 +501,218 @@ impl ObjectPool {
     /// Get the radar cross section in m^2
     pub fn get_rcs(&self, idx: usize) -> f64 {
         self.rcs[idx]
+    }
+
+    /// Create ObjectPool from real CelesTrak satellite data
+    pub fn from_celestrak(group: &str, config: &SimConfig) -> Self {
+        use crate::celestrak;
+        
+        eprintln!("🛰  Loading satellite data from CelesTrak: GROUP={}", group);
+        
+        let satellites = match celestrak::fetch_satellites(group) {
+            Ok(sats) => sats,
+            Err(e) => {
+                eprintln!("❌ Failed to fetch CelesTrak data: {}", e);
+                eprintln!("⚠️  Falling back to random simulation");
+                let mut fallback_config = config.clone();
+                fallback_config.celestrak_group = None;
+                return Self::new(&fallback_config);
+            }
+        };
+        
+        if satellites.is_empty() {
+            eprintln!("❌ No satellites downloaded, falling back to random simulation");
+            let mut fallback_config = config.clone();
+            fallback_config.celestrak_group = None;
+            return Self::new(&fallback_config);
+        }
+        
+        let n = satellites.len();
+        eprintln!("✓ Loaded {} satellites from CelesTrak", n);
+        
+        let mut id = Vec::with_capacity(n);
+        let mut names = Vec::with_capacity(n);  // Store real satellite names!
+        let mut radius = Vec::with_capacity(n);
+        let mut incl = Vec::with_capacity(n);
+        let mut theta0 = Vec::with_capacity(n);
+        let mut period = Vec::with_capacity(n);
+        let mut pos = Vec::with_capacity(n);
+        let mut vel = Vec::with_capacity(n);
+        let mut sgp4_constants = Vec::with_capacity(n);
+        let mut object_type = Vec::with_capacity(n);
+        let mut size_meters = Vec::with_capacity(n);
+        let mut rcs = Vec::with_capacity(n);
+        
+        let mu = 398600.4418; // Earth's gravitational parameter (km³/s²)
+        
+        // Initial propagation to get current positions
+        let minutes_since_epoch = 0.0; // Start at epoch
+        
+        for (i, (name, constants)) in satellites.into_iter().enumerate() {
+            id.push(i);
+            names.push(name);  // Keep the real satellite name from TLE!
+            
+            // Propagate to get initial state
+            if let Ok(prediction) = constants.propagate(sgp4::MinutesSinceEpoch(minutes_since_epoch)) {
+                pos.push(prediction.position);
+                vel.push(prediction.velocity);
+                
+                // Calculate orbital parameters from position/velocity
+                let r = (prediction.position[0].powi(2) + 
+                        prediction.position[1].powi(2) + 
+                        prediction.position[2].powi(2)).sqrt();
+                
+                radius.push(r);
+                
+                // Calculate inclination from position vector
+                let inc = (prediction.position[2] / r).asin().abs();
+                incl.push(inc);
+                
+                // Calculate true anomaly (simplified)
+                let theta = if prediction.position[0] != 0.0 || prediction.position[2] != 0.0 {
+                    (prediction.position[1] / (prediction.position[0].powi(2) + prediction.position[2].powi(2)).sqrt()).atan()
+                } else {
+                    0.0
+                };
+                theta0.push(theta);
+                
+                // Calculate period
+                let a = r; // Assume circular for period calculation
+                let p = 2.0 * std::f64::consts::PI * (a.powi(3) / mu).sqrt();
+                period.push(p);
+                
+                sgp4_constants.push(constants);
+                
+                // All CelesTrak objects are satellites (not debris)
+                object_type.push(ObjectType::Satellite);
+                
+                // Estimate size based on orbit type (LEO=2m, MEO/GEO=5m)
+                let size = if r < 8000.0 { 2.0 } else { 5.0 };
+                size_meters.push(size);
+                rcs.push(size * size);
+            }
+        }
+        
+        eprintln!("✓ Successfully initialized {} satellite objects with real names", id.len());
+        
+        Self {
+            id,
+            names,
+            radius,
+            incl,
+            theta0,
+            period,
+            pos,
+            vel,
+            sgp4_constants: Some(sgp4_constants),
+            object_type,
+            size_meters,
+            rcs,
+            sim_time: 0.0,
+            propagator: PropagatorType::Sgp4, // Always use SGP4 for real data
+        }
+    }
+
+    /// Create ObjectPool from multiple CelesTrak groups for more objects
+    pub fn from_celestrak_multi(config: &SimConfig) -> Self {
+        use crate::celestrak;
+        
+        eprintln!("🛰  Loading satellite data from multiple CelesTrak groups");
+        
+        let groups = celestrak::get_realtime_groups();
+        eprintln!("   Groups: {:?}", groups);
+        
+        let satellites = match celestrak::fetch_multiple_groups(&groups) {
+            Ok(sats) => sats,
+            Err(e) => {
+                eprintln!("❌ Failed to fetch CelesTrak data: {}", e);
+                eprintln!("⚠️  Falling back to random simulation");
+                let mut fallback_config = config.clone();
+                fallback_config.celestrak_group = None;
+                return Self::new(&fallback_config);
+            }
+        };
+        
+        if satellites.is_empty() {
+            eprintln!("❌ No satellites downloaded, falling back to random simulation");
+            let mut fallback_config = config.clone();
+            fallback_config.celestrak_group = None;
+            return Self::new(&fallback_config);
+        }
+        
+        let n = satellites.len();
+        eprintln!("✓ Total satellites loaded: {}", n);
+        
+        let mut id = Vec::with_capacity(n);
+        let mut names = Vec::with_capacity(n);
+        let mut radius = Vec::with_capacity(n);
+        let mut incl = Vec::with_capacity(n);
+        let mut theta0 = Vec::with_capacity(n);
+        let mut period = Vec::with_capacity(n);
+        let mut pos = Vec::with_capacity(n);
+        let mut vel = Vec::with_capacity(n);
+        let mut sgp4_constants = Vec::with_capacity(n);
+        let mut object_type = Vec::with_capacity(n);
+        let mut size_meters = Vec::with_capacity(n);
+        let mut rcs = Vec::with_capacity(n);
+        
+        let mu = 398600.4418; // Earth's gravitational parameter (km³/s²)
+        let minutes_since_epoch = 0.0;
+        
+        for (i, (name, constants)) in satellites.into_iter().enumerate() {
+            id.push(i);
+            names.push(name);
+            
+            if let Ok(prediction) = constants.propagate(sgp4::MinutesSinceEpoch(minutes_since_epoch)) {
+                pos.push(prediction.position);
+                vel.push(prediction.velocity);
+                
+                let r = (prediction.position[0].powi(2) + 
+                        prediction.position[1].powi(2) + 
+                        prediction.position[2].powi(2)).sqrt();
+                
+                radius.push(r);
+                
+                let inc = (prediction.position[2] / r).asin().abs();
+                incl.push(inc);
+                
+                let theta = if prediction.position[0] != 0.0 || prediction.position[2] != 0.0 {
+                    (prediction.position[1] / (prediction.position[0].powi(2) + prediction.position[2].powi(2)).sqrt()).atan()
+                } else {
+                    0.0
+                };
+                theta0.push(theta);
+                
+                let a = r;
+                let p = 2.0 * std::f64::consts::PI * (a.powi(3) / mu).sqrt();
+                period.push(p);
+                
+                sgp4_constants.push(constants);
+                object_type.push(ObjectType::Satellite);
+                
+                let size = if r < 8000.0 { 2.0 } else { 5.0 };
+                size_meters.push(size);
+                rcs.push(size * size);
+            }
+        }
+        
+        eprintln!("✓ Successfully initialized {} satellite objects from multiple groups", id.len());
+        
+        Self {
+            id,
+            names,
+            radius,
+            incl,
+            theta0,
+            period,
+            pos,
+            vel,
+            sgp4_constants: Some(sgp4_constants),
+            object_type,
+            size_meters,
+            rcs,
+            sim_time: 0.0,
+            propagator: PropagatorType::Sgp4,
+        }
     }
 }
