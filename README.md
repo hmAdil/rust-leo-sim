@@ -25,8 +25,6 @@ A high-performance Rust-based space surveillance simulation modeling Low Earth O
 
 This simulation models the complete SSA pipeline: orbital propagation → ground-based detection → data association → track maintenance → collision detection → catalog generation. The system handles 100,000+ space objects with realistic sensor characteristics, producing quantitative evaluation metrics suitable for algorithm benchmarking and mission planning.
 
-**Real-Time Demonstration Mode:** Track 131+ real satellites (ISS, GPS, Weather) using actual CelesTrak TLE data with live visualization.
-
 ### Key Capabilities
 
 - **Massive Scale**: Simulate 100,000+ orbital objects with parallel propagation
@@ -63,393 +61,19 @@ Position:         r(t) = [r·cos(θ)·cos(i), r·sin(θ), r·cos(θ)·sin(i)]
 - Industry-standard propagation using SGP4/SDP4 models
 - Accounts for orbital perturbations (drag, J2 effects)
 - Pre-computed constants cached for performance
-- Enable with `--sgp4` flag
-
-**Trade-offs:**
-- Simple Keplerian: ~2-5ms for 100K objects
-- SGP4: ~15-30ms for 100K objects (more realistic)
-
-#### CelesTrak Integration (Real Satellite Data)
-
-Download and track real satellites using Two-Line Element (TLE) data from CelesTrak:
-
-**Data Storage:**
-- TLE data is automatically downloaded and cached in the `dataset/` folder
-- First run downloads from CelesTrak (~10-100KB per group)
-- Subsequent runs use cached data for instant startup
-- Cache files named by group: `dataset/stations.txt`, `dataset/gps-ops.txt`, etc.
-- **Real satellite names preserved** from TLE data (e.g., "ISS (ZARYA)", "GPS BIIR-5 (PRN 22)")
-
-**Real-Time Mode Default Groups:**
-When running `--realtime-gui`, the system automatically loads:
-- `stations` - ~25 satellites (ISS, Tiangong, CSS)
-- `gps-ops` - ~32 satellites (GPS constellation)
-- `weather` - ~74 satellites (NOAA, GOES, MetOp)
-- **Total: 131+ real satellites with actual names**
-
-**Manual Download (if automatic download fails):**
-```bash
-# Windows PowerShell
-.\download_tle_data.ps1 stations
-.\download_tle_data.ps1 gps-ops
-.\download_tle_data.ps1 weather
-
-# Or manually download from: https://celestrak.org/NORAD/elements/
-# Save TLE files to: dataset/<group-name>.txt
-```
-
-**Export to CSV:**
-```powershell
-# Export all downloaded satellites to CSV
-.\export_satellites_to_csv.ps1
-
-# View the CSV
-Get-Content satellites.csv | Select-Object -First 10
-```
-
-**Available Groups:**
-```bash
-cargo run --release -- --list-celestrak-groups
-```
-
-Common groups:
-- `stations` - International Space Station, Tiangong, etc. (~10 objects)
-- `active` - All active satellites (~5000+ objects)
-- `starlink` - SpaceX Starlink constellation (~5000+ objects)
-- `gps-ops` - GPS operational satellites (~30 objects)
-- `weather` - Weather satellites (~100 objects)
-
-**Usage:**
-```bash
-cargo run --release -- --celestrak-group stations --steps 100
-```
-
-When using CelesTrak data:
-- Automatically uses SGP4 propagator
-- Object count determined by downloaded TLE data
-- **Real satellite names displayed** in GUI and exports
-- Falls back to random simulation if download fails
-- All objects classified as satellites (not debris)
-
-### 2. Observatory Network
-
-Ground stations distributed globally using **Fibonacci sphere algorithm** for optimal coverage.
-
-
-**Detection Characteristics:**
-- **Vision Cone**: Observatories detect objects within a field-of-view cone (default: 60° half-angle)
-- **Horizon Check**: Objects must be above horizon (positive dot product with zenith vector)
-- **Detection Range**: Approximately 3,000 km maximum
-- **Measurement Noise**: Gaussian noise added to position (0.5 km σ) and velocity (0.005 km/s σ)
-- **Size-Based Detection Probability**: Uses exponential model `P = 1 - exp(-size/5.0)` where larger objects are easier to detect
-- **Signal-to-Noise Ratio (SNR)**: Computed as `(size²/distance²) × 10⁶` for realism
-
-**Object Naming Convention:**
-- Observatories: `OBS_00`, `OBS_01`, ..., `OBS_XX`
-- Objects: `OBJ_000001`, `OBJ_000002`, ..., `OBJ_XXXXXX`
-
-### 3. Object Types & Characteristics
-
-Objects are categorized as **Satellites** or **Debris** with realistic size distributions:
-
-| Property | Satellites | Debris |
-|----------|-----------|---------|
-| **Ratio** | 15% of population | 85% of population |
-| **Size Distribution** | Normal: μ=2.0m, σ=1.0m | Uniform: 0.01m - 2.0m |
-| **RCS Model** | size² (square meters) | size² (square meters) |
-| **Detection** | Higher probability | Size-dependent probability |
-
-This models real LEO environments where debris significantly outnumbers active satellites.
-
-### 4. Data Association & Tracking
-
-#### Nearest-Neighbor Tracker (Default)
-Fast baseline tracker using spatial gating:
-
-- **Spatial Bucketing**: 50 km grid cells for O(1) proximity queries
-- **Association Gate**: 17 km threshold (configurable)
-- **Parallel Prediction**: Track propagation parallelized with Rayon
-- **Sequential Association**: Maintains state consistency
-
-**Track States:**
-- **Tentative**: 1-2 observations, confidence < 0.5
-- **Confirmed**: 3+ observations, confidence ≥ 0.9
-- **Lost**: No updates for 3+ consecutive steps
-
-**Track Update Logic:**
-```rust
-confidence = min(1.0, observation_count / 10.0)
-predicted_pos = last_pos + last_vel × dt
-```
-
-#### JPDA Tracker (Advanced)
-
-Enable with `--jpda` flag.
-
-Joint Probabilistic Data Association implements soft probabilistic matching:
-
-- **Gaussian Likelihood Gating**: Computes association probabilities for all observation-track pairs
-- **Soft Updates**: Weighted combination of multiple observations within gate
-- **Probability Threshold**: Requires max probability > 0.1 for association
-- **Better Dense Environments**: Handles ambiguous observations more effectively
-
-**Probability Computation:**
-```
-likelihood_i = exp(-0.5 × distance² / gate_threshold²)
-probability_i = likelihood_i / Σ(likelihoods)
-```
-
-**Weighted Update:**
-```
-updated_pos = Σ(probability_i × observation_i.position)
-updated_vel = Σ(probability_i × observation_i.velocity)
-```
-
-### 5. Evaluation Metrics
-
-#### Classification Metrics
-Standard metrics computed by comparing track associations to ground truth:
-
-- **Precision**: TP / (TP + FP) — fraction of confirmed tracks that are correct
-- **Recall**: TP / (TP + FN) — fraction of true objects successfully tracked
-- **F1 Score**: 2 × (
-**Detection Characteristics:**
-- Vision Cone: Observatories detect objects within FOV cone (default 60 degree half-angle)
-- Horizon Check: Objects must be above horizon
-- Detection Range: ~3000 km maximum
-- Measurement Noise: Gaussian noise on position (0.5 km) and velocity (0.005 km/s)
-- Size-Based Detection: Exponential probability model favoring larger objects
-- SNR Computation: Based on object size and distance
-
-**Object Naming:**
-- Observatories: OBS_00, OBS_01, etc.
-- Objects: OBJ_000001, OBJ_000002, etc.
-
-### 3. Object Types and Characteristics
-
-Objects categorized as Satellites or Debris with realistic size distributions:
-
-**Satellites (15% of population):**
-- Size: Normal distribution, mean=2.0m, std=1.0m
-- Higher detection probability
-
-**Debris (85% of population):**
-- Size: Uniform distribution, 0.01m to 2.0m
-- Detection probability depends on size
-
-**RCS Model:** size squared (square meters)
-
-### 4. Data Association and Tracking
-
-#### Nearest-Neighbor Tracker (Default)
-
-Fast baseline using spatial gating:
-- Spatial Bucketing: 50 km grid cells
-- Association Gate: 17 km threshold
-- Parallel prediction, sequential association
-
-**Track States:**
-- Tentative: 1-2 observations, confidence < 0.5
-- Confirmed: 3+ observations, confidence >= 0.9
-- Lost: No updates for 3+ steps
-
-#### JPDA Tracker (Advanced)
-
-Enable with --jpda flag.
-
-Joint Probabilistic Data Association with soft probabilistic matching:
-- Gaussian likelihood gating
-- Weighted combination of observations
-- Better handling of dense environments
-
-### 5. Evaluation Metrics
-
-**Classification Metrics:**
-- Precision: TP / (TP + FP)
-- Recall: TP / (TP + FN)
-- F1 Score: Harmonic mean of precision and recall
-
-**OSPA (Optimal Sub-Pattern Assignment):**
-- Hungarian algorithm implementation for optimal matching
-- Measures both localization and cardinality errors
-- Cutoff: 100 km, order parameter: 2.0
-- Capped at 200 tracks for O(n3) complexity management
-
-### 6. Collision Detection
-
-Linear closest-approach prediction:
-- Projects trajectories forward in time
-- Computes miss distance at closest approach
-- Default threshold: 10 km
-- Time horizon: 600 seconds (10 minutes)
-
-**Output:**
-```rust
-CollisionPair {
-    track_a: u64,
-    track_b: u64,
-    miss_distance_km: f64,
-    time_to_closest_approach_s: f64,
-}
-```
-
-### 7. Stress-Test Scenario
-
-Enable with --stress-test flag.
-
-Creates dense orbital environments for algorithm testing:
-
-**5 Orbital Shells:**
-- 550 km altitude (6921 km from core)
-- 600 km altitude (6971 km from core)
-- 650 km altitude (7021 km from core)
-- 700 km altitude (7071 km from core)
-- 750 km altitude (7121 km from core)
-
-**Distribution:**
-- 70% clustered in 3 hotspots per shell (25 km std dev)
-- 30% uniformly distributed
-- Exposes classical tracker failure modes
-
-### 8. Density Benchmark Suite
-
-Enable with --density-sweep flag.
-
-Runs simulations at multiple object counts:
-- 100, 500, 1000, 2000, 5000, 10000 objects
-- 50 steps per configuration
-- Exports JSON results to density_sweep_results.json
-
-**Output Format:**
-```json
-[
-  {
-    "n_objects": 1000,
-    "mean_precision": 0.96,
-    "mean_recall": 0.81,
-    "mean_f1": 0.88,
-    "mean_step_time_ms": 4.24,
-    "mean_tracks_confirmed": 251.58
-  }
-]
-```
-
-### 9. Interactive GUI Mode
-
-Enable with --gui flag.
-
-**Features:**
-- 3D projection views (X-Y equatorial, X-Z meridional)
-- Color-coded tracks (blue=confirmed, yellow=tentative, red=collision risk)
-- Track history visualization
-- Play/pause/step controls
-- Speed control (1x-10x)
-- Real-time statistics panel
-- Observatory network display
-- Object inspector with complete state vectors
-
-### 10. Real-Time Live Tracking Mode
-
-Enable with --realtime-gui flag.
-
-**Purpose:** Live demonstration using real satellite data from CelesTrak, displaying actual satellite names and orbits.
-
-**Key Features:**
-- **Same GUI as interactive mode**: Full 3D visualization, track inspector, collision monitoring
-- **Real satellite data**: Automatically loads 131+ satellites from multiple CelesTrak groups
-  - Stations group: ~25 satellites (ISS, Tiangong, CSS)
-  - GPS-OPS group: ~32 satellites (GPS constellation)
-  - Weather group: ~74 satellites (NOAA, GOES, MetOp, etc.)
-- **Real satellite names displayed**: See actual names like "ISS (ZARYA)", "GPS BIIR-5 (PRN 22)", not generic IDs
-- **Local caching**: Downloads once to `dataset/` folder, instant startup on subsequent runs
-- **Real-time operation**: Simulation advances at wall-clock rate (1 second sim = 1 second real)
-- **Automatic playback**: Starts playing automatically at 1x speed
-- **CSV export**: Export all satellite data to CSV format with the included script
-
-**Console Output (Proof of Real Data):**
-```
-🛰  Loading satellite data from multiple CelesTrak groups
-   Groups: ["stations", "gps-ops", "weather"]
-📡 Loading group: stations
-📂 Loading cached TLE data from: dataset/stations.txt
-  ✓ Loaded 25 satellites from stations
-📡 Loading group: gps-ops
-  ✓ Loaded 32 satellites from gps-ops
-📡 Loading group: weather
-  ✓ Loaded 74 satellites from weather
-🛰  Total satellites loaded: 131
-✓ Successfully initialized 131 satellite objects from multiple groups
-```
-
-**How to Verify It's Real Data:**
-1. Check console output - shows "Loading satellite data from multiple CelesTrak groups"
-2. Check `dataset/` folder - contains cached TLE files (stations.txt, gps-ops.txt, weather.txt)
-3. Object names in GUI show real satellites (e.g., "ISS (ZARYA)", not "OBJ_000001")
-4. Export to CSV: `.\export_satellites_to_csv.ps1` creates `satellites.csv` with 131 real satellites
-5. Title bar shows "REAL-TIME Live Tracking"
-
-**Manual Data Management:**
-
-Download individual satellite groups:
-```powershell
-.\download_tle_data.ps1 stations
-.\download_tle_data.ps1 gps-ops
-.\download_tle_data.ps1 weather
-.\download_tle_data.ps1 galileo
-```
-
-Export all downloaded satellites to CSV:
-```powershell
-.\export_satellites_to_csv.ps1
-# Creates satellites.csv with columns: ID, Name, NORAD_ID, Group, Inclination, Type
-```
-
-View downloaded data:
-```powershell
-# List cached TLE files
-Get-ChildItem dataset/
-
-# View CSV export
-Get-Content satellites.csv | Select-Object -First 10
-```
-
-**Differences from Interactive GUI:**
-- Uses real CelesTrak data instead of random objects
-- Automatically starts in "playing" mode at 1x speed
-- Always uses SGP4 propagator for realistic orbital mechanics
-- Title indicates "REAL-TIME Live Tracking"
-
-**Use Cases:**
-- Live demonstration of SSA system capabilities with real data
-- Operator training with actual satellite orbits
-- System validation under real-time constraints
-- Proof-of-concept for operational tracking networks
-
-**Data Source:**
-By default uses the "stations" group from CelesTrak (ISS, Tiangong, etc.). Can be customized with:
-```bash
-cargo run --release -- --realtime-gui --celestrak-group active
-```
+- Enable via GUI or --sgp4 flag
 
 ---
 
 ## Architecture
 
-### Coordinate System
-
-**3D Vector System with Earth's Core at Origin:**
-- Position vectors: r = [x, y, z] in km from Earth's core
-- Velocity vectors: v = [vx, vy, vz] in km/s
-- Earth radius: 6371 km
-- LEO altitude: 200-2000 km above surface (6571-8371 km from core)
-
 ### Module Structure
 
 ```
 src/
-├── main.rs           - CLI parsing, run modes
-├── config.rs         - Configuration structures
-├── objects.rs        - Object pool, propagation
+├── main.rs           - Entry point, launches unified GUI
+├── config.rs         - Configuration structures (SimConfig, PropagatorType, TrackerType)
+├── objects.rs        - Object pool, propagation, orbital parameters
 ├── sensor.rs         - Ground stations, observations
 ├── spatial.rs        - Spatial indexing (grid-based)
 ├── tracker.rs        - Nearest-neighbor tracker
@@ -460,20 +84,28 @@ src/
 ├── catalog.rs        - Object catalog, CSV export
 ├── passive.rs        - Passive propagation utilities
 ├── sim.rs            - Simulation orchestration
-├── gui.rs            - Real-time visualization
+├── gui/              - Unified GUI module
+│   ├── mod.rs        - Module exports and run() launcher
+│   ├── app.rs        - UnifiedApp with AppState routing
+│   ├── state.rs      - AppState, ConfigScreenState, BenchmarkState
+│   ├── config_screen.rs - Configuration UI and validation
+│   ├── simulation_screen.rs - Simulation state and controls
+│   ├── benchmark.rs  - Density sweep benchmark
+│   └── file_io.rs    - CSV import/export
 └── bench.rs          - Benchmark harness
 ```
 
-### Simulation Loop
+### Unified GUI Architecture
 
-1. **Propagate**: Update all object positions (parallel)
-2. **Index**: Rebuild spatial grid
-3. **Observe**: All observatories detect objects (parallel)
-4. **Associate**: Match observations to tracks
-5. **Update**: Refresh track states and confidence
-6. **Collide**: Check for collision candidates
-7. **Catalog**: Update detected object catalog
-8. **Export**: Output metrics and summaries
+The application now uses a two-screen architecture:
+
+1. **ConfigScreen**: Configuration interface with presets, parameter controls, and CSV import
+2. **SimulationScreen**: 3D visualization with playback controls, metrics, and export
+
+**State Management:**
+- `AppState::Config` - Shows configuration screen
+- `AppState::Simulation` - Runs simulation with 3D visualization
+- `AppState::Benchmark` - Background density sweep with progress overlay
 
 ---
 
@@ -491,67 +123,36 @@ cd rust-leo-sim
 cargo build --release
 ```
 
-### Run Modes
+### Launch Application
 
-**Basic Simulation:**
+**Unified GUI (No CLI arguments required):**
 ```bash
 cargo run --release
+# or double-click the built executable
 ```
 
-**Interactive GUI Mode:**
-```bash
-cargo run --release -- --gui
-```
+The application now launches directly into the ConfigScreen. Configure your simulation parameters and click "Launch Simulation" to start.
 
-**Real-Time Live Tracking (with real satellite data):**
-```bash
-cargo run --release -- --realtime-gui
-```
+### Configuration Screen
 
-**Real-Time with Different CelesTrak Group:**
-```bash
-cargo run --release -- --realtime-gui --celestrak-group active
-cargo run --release -- --realtime-gui --celestrak-group starlink
-```
+The ConfigScreen provides:
 
-**Benchmark Mode:**
-```bash
-cargo run --release -- --bench --steps 100
-```
+- **Preset Buttons**: Default, Stress Test, High Fidelity, Benchmark
+- **Parameter Controls**: All SimConfig fields with sliders and input fields
+- **Data Source Selection**: Generate synthetic objects or import CSV
+- **CSV Import**: Browse and validate satellite catalog files
+- **Validation**: Real-time configuration validation with error messages
 
-**Density Sweep:**
-```bash
-cargo run --release -- --density-sweep
-```
+### Simulation Screen
 
-**Stress Test with JPDA:**
-```bash
-cargo run --release -- --stress-test --jpda --steps 200
-```
+The SimulationScreen provides:
 
-**SGP4 Propagation:**
-```bash
-cargo run --release -- --sgp4 --objects 10000 --steps 50
-```
-
-### Command-Line Options
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| --gui | Launch interactive GUI | Off |
-| --realtime-gui | Launch real-time tracking with CelesTrak data | Off |
-| --bench | Enable benchmark mode | Off |
-| --steps N | Number of simulation steps | 100 |
-| --objects N | Number of objects | 100000 |
-| --sensors N | Number of observatories | 20 |
-| --seed N | Random seed | 42 |
-| --collision-km N | Collision threshold (km) | 10.0 |
-| --sgp4 | Use SGP4 propagator | Simple Keplerian |
-| --jpda | Use JPDA tracker | Nearest-neighbor |
-| --stress-test | Dense orbital shells | Uniform distribution |
-| --density-sweep | Run density benchmark | Off |
-| --celestrak-group GROUP | Use real CelesTrak satellite data | None |
-| --list-celestrak-groups | List available CelesTrak groups | - |
+- **Top Bar**: Config button, Play/Pause, Step, Reset, Speed control
+- **3D View**: Earth, observatories, orbiting objects with camera controls
+- **Detection Log**: Live detection feed with collision warnings
+- **Object Inspector**: Detailed track and object information
+- **Run Metrics**: Precision, Recall, F1, OSPA, performance statistics
+- **Export**: CSV catalog and JSON metrics export
 
 ---
 
@@ -559,54 +160,22 @@ cargo run --release -- --sgp4 --objects 10000 --steps 50
 
 ### SimConfig Structure
 
-```rust
-pub struct SimConfig {
-    pub n_objects: usize,              // 100000
-    pub n_sensors: usize,              // 20
-    pub dt: f64,                       // 30.0 seconds
-    pub steps: usize,                  // 100
-    pub seed: u64,                     // 42
-    pub fov_half_angle: f64,           // PI/3 (60 degrees)
-    pub pos_noise_std: f64,            // 0.5 km
-    pub vel_noise_std: f64,            // 0.005 km/s
-    pub gate_threshold: f64,           // 17.0 km
-    pub collision_threshold_km: f64,   // 10.0 km
-    pub collision_horizon_s: f64,      // 600.0 seconds
-    pub propagator: PropagatorType,    // SimpleKeplerian | Sgp4
-    pub tracker_type: TrackerType,     // NearestNeighbor | Jpda
-    pub stress_test: bool,             // false
-    pub satellite_ratio: f64,          // 0.15 (15% satellites)
-    pub satellite_size_mean: f64,      // 2.0 meters
-    pub satellite_size_std: f64,       // 1.0 meters
-    pub debris_size_min: f64,          // 0.01 meters
-    pub debris_size_max: f64,          // 2.0 meters
-}
-```
+All configuration is now done through the GUI. The `SimConfig` struct contains:
 
-### GUI Configuration
-
-**Interactive GUI Mode (--gui):**
-Reduced object count for interactive performance:
-- Objects: 300 (vs 100000 in batch mode)
-- Sensors: 24
-- Time step: 20 seconds
-- Unlimited steps
-- User-controlled playback speed
-
-**Real-Time Mode (--realtime-gui):**
-Optimized for live tracking demonstration with real satellite data:
-- **Real satellite data**: 131+ satellites from multiple CelesTrak groups
-  - Stations: ~25 (ISS, Tiangong, CSS)
-  - GPS-OPS: ~32 (GPS constellation)
-  - Weather: ~74 (NOAA, GOES, MetOp)
-- **Real names displayed**: "ISS (ZARYA)", "GPS BIIR-5 (PRN 22)", etc.
-- Sensors: 24
-- Time step: 1.0 seconds (synchronized to wall-clock)
-- Unlimited steps
-- Automatic playback at 1x speed
-- SGP4 propagator enabled by default
-- Same full-featured GUI as interactive mode
-- Data cached locally in `dataset/` folder
+- `n_objects`: Number of simulated objects (1-100,000)
+- `n_sensors`: Number of ground observatories (1-100)
+- `dt`: Time step in seconds (0.1-1000.0)
+- `steps`: Number of simulation steps (1-10,000)
+- `seed`: Random seed for reproducibility
+- `fov_half_angle`: Sensor field of view (radians)
+- `pos_noise_std`: Position measurement noise (km)
+- `vel_noise_std`: Velocity measurement noise (km/s)
+- `gate_threshold`: Association gate threshold (km)
+- `collision_threshold_km`: Collision warning threshold (km)
+- `collision_horizon_s`: Time horizon for collision prediction (seconds)
+- `propagator`: Simple Keplerian or SGP4
+- `tracker_type`: Nearest Neighbor or JPDA
+- `stress_test`: Clustered object distribution
 
 ---
 
@@ -614,61 +183,24 @@ Optimized for live tracking demonstration with real satellite data:
 
 ### Console Output (JSON)
 
-Per-step summary:
-```json
-{
-  "step": 42,
-  "sim_time_s": 1260.0,
-  "wall_time_ms": 67,
-  "objects_propagated": 100000,
-  "observations_total": 1523,
-  "tracks_confirmed": 845,
-  "tracks_tentative": 234,
-  "tracks_lost": 12,
-  "association_tp": 820,
-  "association_fp": 25,
-  "association_fn": 18,
-  "collision_candidates": 3,
-  "cataloged_objects": 845,
-  "ospa": 8.42
-}
-```
+Per-step summary with optional verbose output.
 
 ### Catalog Export (CSV)
 
-File: detected_objects_catalog.csv
+File: `detected_objects_catalog.csv`
 
 Columns:
-- Object_Name: OBJ_XXXXXX format
-- First_Detection_Time_s: Initial detection timestamp
-- Last_Detection_Time_s: Most recent detection
-- Position_X_km, Position_Y_km, Position_Z_km: Last known position
-- Velocity_X_km_s, Velocity_Y_km_s, Velocity_Z_km_s: Last known velocity
-- Detection_Count: Number of detections
-- Tracking_Confidence: 0.0 to 1.0
+- Object_Name, Object_Type, Size_m
+- First_Detection_Time_s, Last_Detection_Time_s
+- Position_X_km, Position_Y_km, Position_Z_km
+- Velocity_X_km_s, Velocity_Y_km_s, Velocity_Z_km_s
+- Detection_Count, Tracking_Confidence
 
-**Important:** Catalog contains only detected objects, not all simulated objects.
+### Metrics Export (JSON)
 
-### Benchmark Report
+File: `run_metrics_snapshot.json`
 
-```json
-{
-  "total_steps": 100,
-  "total_sim_time_s": 3000.0,
-  "total_wall_time_s": 8.234,
-  "throughput_steps_per_sec": 12.14,
-  "mean_precision": 0.967,
-  "mean_recall": 0.843,
-  "mean_f1": 0.901,
-  "mean_ospa": 12.56,
-  "benchmark": {
-    "mean_step_time_ms": 82.34,
-    "median_step_time_ms": 79.12,
-    "p95_step_time_ms": 95.67,
-    "p99_step_time_ms": 103.21
-  }
-}
-```
+Contains cumulative precision, recall, F1, OSPA, and benchmark statistics.
 
 ---
 
@@ -676,140 +208,21 @@ Columns:
 
 ### Scalability (100K Objects)
 
-**Timing Breakdown:**
-- Propagation: 2-5 ms (parallel)
-- Spatial indexing: 5-10 ms
-- Observation: 20-40 ms (8-20 sensors, parallel)
-- Tracking: 10-30 ms
-- **Total: 40-85 ms per step**
-
-### Parallelization Strategy
-
-**Rayon-based parallelism:**
-- Object propagation (data parallel)
-- Spatial index construction
-- Observatory observations
-- Track prediction
-
-**Sequential sections:**
-- Data association (state consistency)
-- Catalog updates
-
-### Memory Usage (100K Objects)
-
-- ObjectPool: ~15 MB
-- Tracks: 1-2 MB
-- Spatial index: 5-10 MB
-- **Total: ~20-30 MB**
-
-### Performance Comparison
-
-| Objects | Propagator | Time/Step | Memory |
-|---------|-----------|-----------|--------|
-| 1K | Keplerian | ~2 ms | <5 MB |
-| 10K | Keplerian | ~8 ms | ~10 MB |
-| 100K | Keplerian | ~65 ms | ~25 MB |
-| 100K | SGP4 | ~180 ms | ~30 MB |
+- **Propagation**: 2-5 ms (parallel)
+- **Spatial indexing**: 5-10 ms
+- **Observation**: 20-40 ms (parallel)
+- **Tracking**: 10-30 ms
+- **Total**: 40-85 ms per step
 
 ---
 
 ## Research Applications
 
-### Space Situational Awareness
-
-- **Catalog Maintenance**: Simulate catalog update workflows
-- **Debris Tracking**: Model detection and tracking of small debris
-- **Conjunction Assessment**: Collision candidate identification
-
-### Observatory Network Design
-
-- **Coverage Analysis**: Test different sensor configurations
-- **Placement Optimization**: Evaluate global distribution strategies
-- **Sensor Requirements**: Define FOV and sensitivity needs
-
-### Algorithm Development
-
-- **Baseline Performance**: Establish classical tracker metrics
-- **GNN Benchmarking**: Provide comparison data for neural approaches
-- **Association Testing**: Stress-test data association algorithms
-- **Orbit Determination**: Use observations for orbit fitting research
-
-### Mission Planning
-
-- **Launch Window Analysis**: Simulate congested orbital regimes
-- **Deorbit Strategy**: Model debris removal scenarios
-- **Conjunction Avoidance**: Evaluate collision risk over time
-
-### Real-Time Operations
-
-- **Live Tracking Demonstration**: Proof-of-concept for real-time SSA systems
-- **Operator Training**: Visualize detection and tracking workflows
-- **System Validation**: Verify algorithm performance under real-time constraints
-- **Ground Station Operations**: Simulate multi-sensor coordination and data fusion
-
----
-
-## Extending the System
-
-### Easy Modifications
-
-**Change Orbital Regime:**
-```rust
-// In objects.rs, modify radius_dist
-let radius_dist = Uniform::new(42164.0, 42164.0); // GEO
-```
-
-**Adjust Observatory Network:**
-```rust
-// Change number of sensors
-cargo run --release -- --sensors 50
-```
-
-**Tune Detection Parameters:**
-```rust
-// Modify SimConfig defaults in config.rs
-fov_half_angle: PI / 4.0,  // 45 degrees
-pos_noise_std: 0.1,        // 100 meters
-```
-
-**Export Additional Data:**
-```rust
-// Add fields to CatalogEntry in catalog.rs
-pub struct CatalogEntry {
-    // ... existing fields
-    pub orbit_type: String,
-    pub last_maneuver_time: Option<f64>,
-}
-```
-
-### Advanced Extensions
-
-**1. Realistic Propagators**
-- Integrate J2 perturbations
-- Add atmospheric drag models
-- Use GMAT or Orekit for high-fidelity propagation
-
-**2. Advanced Tracking**
-- Implement Kalman filtering
-- Add multi-hypothesis tracking (MHT)
-- Orbit determination from observations
-
-**3. Improved Collision Analysis**
-- Covariance propagation
-- Probability of collision (Pc) computation
-- Conjunction Data Message (CDM) generation
-
-**4. Sensor Realism**
-- Atmospheric refraction
-- Terrain occlusion
-- Sky brightness constraints
-- Weather effects
-- Sensor tasking optimization
-
-**5. Multi-Sensor Fusion**
-- Combine radar and optical observations
-- Cross-sensor track correlation
-- Distributed tracking architectures
+- Space Situational Awareness simulation
+- Observatory network design and coverage analysis
+- Tracking algorithm benchmarking (baseline vs GNN)
+- Collision assessment and conjunction analysis
+- Real-time operations prototyping
 
 ---
 
@@ -825,77 +238,28 @@ serde_json = "1"         # JSON output
 eframe = "0.29"          # GUI framework (egui)
 egui_plot = "0.29"       # Plotting widgets
 sgp4 = "2.3"             # SGP4/SDP4 propagator
+rfd = "0.14"             # File dialog for CSV import
 
 [profile.release]
-opt-level = 3            # Maximum optimization
-lto = true               # Link-time optimization
-codegen-units = 1        # Single codegen unit
+opt-level = 3
+lto = true
+codegen-units = 1
 ```
 
 ---
 
 ## Limitations and Assumptions
 
-### Orbital Mechanics
-- Circular orbits only (no eccentricity in Keplerian mode)
-- No perturbations in simple mode (drag, J2, solar pressure)
-- No orbit determination from observations
-
-### Sensor Model
-- Simplified Gaussian noise model
-- No atmospheric effects in simple mode
-- No occlusion modeling
-- Infinite detection range within FOV cone
-
-### Tracking
-- No multi-hypothesis tracking
-- Simple linear prediction
-- No orbit fitting from observation sequences
-
-### Collision Detection
-- Linear closest approach only
-- No covariance propagation
-- No probability of collision calculation
-
----
-
-## Contributing
-
-Contributions welcome! Areas of interest:
-- Realistic orbit determination algorithms
-- Multi-hypothesis tracking implementations
-- Advanced sensor models
-- GPU acceleration for massive simulations
-- Machine learning integration
+- Circular orbits only in simple mode
+- No atmospheric effects in simple propagation
+- Simplified Gaussian noise model for sensors
+- Linear closest approach for collision detection
 
 ---
 
 ## License
 
 MIT License - See LICENSE file for details
-
----
-
-## Citation
-
-If you use this simulator in your research, please cite:
-
-```bibtex
-@software{leo_sim_2024,
-  title = {LEO Observatory Network: Space Situational Awareness Simulation},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/rust-leo-sim}
-}
-```
-
----
-
-## Acknowledgments
-
-- Inspired by ISRO's NETRA (Network for space object Tracking and Analysis) program
-- SGP4 propagator from the sgp4 Rust crate
-- Hungarian algorithm implementation for OSPA metric computation
 
 ---
 

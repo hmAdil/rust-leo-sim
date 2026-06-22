@@ -25,8 +25,8 @@ pub struct ObjectPool {
     pub object_type: Vec<ObjectType>, // Satellite or Debris
     pub size_meters: Vec<f64>,        // Characteristic size (meters)
     pub rcs: Vec<f64>,                // Radar cross section (m^2)
-    sim_time: f64,             // Current simulation time (seconds)
-    propagator: PropagatorType, // Propagation method
+    pub sim_time: f64,             // Current simulation time (seconds)
+    pub propagator: PropagatorType, // Propagation method
 }
 
 impl ObjectPool {
